@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>音乐转调小程序 · 完整开发方案</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#fff; --line:#e6e8eb; --text:#1a1d21; --sub:#5b6470;
+    --brand:#07C160; --brand-dark:#05a152; --ok:#0f7b46; --ok-soft:#e6f6ee;
+    --warn:#9a5b00; --warn-soft:#fff5e0; --danger:#b02a37; --danger-soft:#fdeaec;
+    --code:#1e2229; --codeline:#2b313a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; padding:0 20px 100px; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+    font-size:15px; line-height:1.8;}
+  .wrap{max-width:940px; margin:0 auto;}
+  header{padding:44px 0 22px; border-bottom:2px solid var(--line); margin-bottom:28px;}
+  h1{font-size:29px; margin:0 0 10px;}
+  .meta{color:var(--sub); font-size:14px;}
+  h2{font-size:21px; margin:46px 0 14px; padding-left:12px; border-left:4px solid var(--brand);}
+  h3{font-size:17px; margin:26px 0 10px;}
+  h4{font-size:15px; margin:18px 0 8px;}
+  p{margin:10px 0;} ul,ol{margin:10px 0; padding-left:22px;} li{margin:6px 0;}
+  code{background:#eef1f5; padding:2px 6px; border-radius:4px; font-size:12.5px;
+       font-family:"SF Mono",Menlo,Consolas,monospace;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin:16px 0;}
+  .warn{background:var(--warn-soft); border:1px solid #f0d69a; border-radius:10px; padding:14px 18px; margin:14px 0;}
+  .risk{background:var(--danger-soft); border:1px solid #f2c2c7; border-radius:10px; padding:14px 18px; margin:14px 0;}
+  .ok{background:var(--ok-soft); border:1px solid #b7e2ca; border-radius:10px; padding:14px 18px; margin:14px 0;}
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; background:#fff;}
+  th,td{border:1px solid var(--line); padding:9px 12px; text-align:left; vertical-align:top;}
+  th{background:#f2f4f7; font-weight:600;}
+  .tag{display:inline-block; padding:2px 8px; border-radius:5px; font-size:12px; margin-right:4px;}
+  .t-ok{background:var(--ok-soft); color:var(--ok);}
+  .t-warn{background:var(--warn-soft); color:var(--warn);}
+  .t-risk{background:var(--danger-soft); color:var(--danger);}
+  pre{background:var(--code); color:#e6e9ef; padding:16px 18px; border-radius:10px; overflow-x:auto;
+      font-size:12px; line-height:1.7; font-family:"SF Mono",Menlo,Consolas,monospace; margin:12px 0;}
+  pre .c{color:#7d8694;}
+  pre .g{color:#7fd1a0;}
+  pre .y{color:#f0d269;}
+  .small{font-size:13px; color:var(--sub);}
+  .tree{font-family:"SF Mono",Menlo,Consolas,monospace; font-size:13px; line-height:1.85; background:#fff;
+    border:1px solid var(--line); border-radius:10px; padding:16px 20px; white-space:pre;}
+  .tree b{color:var(--brand-dark);}
+  .kv{display:grid; grid-template-columns:150px 1fr; gap:7px 14px; font-size:14px;}
+  .kv div:nth-child(odd){color:var(--sub);}
+  .toc{background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 22px; margin:18px 0; font-size:14px; columns:2;}
+  @media(max-width:720px){.toc{columns:1;}}
+  .toc div{padding:4px 0;}
+  .toc a{color:var(--brand-dark); text-decoration:none;}
+  .check li{list-style:none; padding-left:26px; position:relative;}
+  .check li::before{content:'☐'; position:absolute; left:0; color:var(--brand-dark); font-size:16px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>音乐转调小程序 · 完整开发方案</h1>
+  <div class="meta">v1.0 ｜ 2026-10-05 ｜ 面向交付：开发者拿到即可开工 ｜ 配套：《技术方案》《付费与广告规则》《界面原型》</div>
+</header>
+
+<div class="toc">
+  <div>一、项目概览与架构</div>
+  <div>二、技术栈与选型</div>
+  <div>三、目录结构</div>
+  <div>四、全局配置</div>
+  <div>五、页面与流程</div>
+  <div>六、核心模块：音频处理</div>
+  <div>七、核心模块：商业化</div>
+  <div>八、UI 规范（适老）</div>
+  <div>九、性能与内存预算</div>
+  <div>十、开发者注意事项清单</div>
+  <div>十一、合规与上架清单</div>
+  <div>十二、M0 真机验证项</div>
+  <div>十三、里程碑</div>
+</div>
+
+<!-- ================= 一、概览 ================= -->
+<h2>一、项目概览与架构</h2>
+<div class="card">
+  <p><b>一句话</b>：在微信小程序内，用<b>手机本地算力</b>把用户选择的音乐文件升高/降低音调（时长不变），通过「看视频 / 花小钱 / 包月」三种方式变现。</p>
+  <h3>架构总览</h3>
+  <pre><span class="c">┌─────────────────────────── 用户手机（全部音频数据不出设备）───────────────────────────┐</span>
+<span class="c">│</span>
+<span class="c">│</span>  chooseMessageFile  →  readFile  →  decodeAudioData  →  <span class="g">PCM（Float32/Int16）</span>
+<span class="c">│</span>        ↓ <span class="c">选文件</span>            ↓ <span class="c">读字节</span>            ↓ <span class="c">系统解码器</span>
+<span class="c">│</span>                                                              ↓
+<span class="c">│</span>                                          ┌────── Worker 线程 ──────┐
+<span class="c">│</span>                                          │  <span class="g">SoundTouch.wasm.br</span>     │
+<span class="c">│</span>                                          │  变调 ±12 半音（WSOLA） │
+<span class="c">│</span>                                          └──────────┬───────────┘
+<span class="c">│</span>                                                     ↓
+<span class="c">│</span>                                          <span class="g">LAME.wasm.br</span> 编码 → MP3
+<span class="c">│</span>                                                     ↓
+<span class="c">│</span>                                          writeFile → shareFileMessage → 微信聊天
+<span class="c">└─────────────────────────────────────────────────────────────────────────────┘</span>
+
+<span class="c">┌────────── 微信云开发 CloudBase（只有订单/余额，几 KB 数据，不含音频）──────────┐</span>
+<span class="c">│</span>  云函数 login → createOrder（双签名）→ 发货推送 → 加权益 → consume（扣减）
+<span class="c">│</span>  云数据库：users / orders / consumptions / adGrants
+<span class="c">└──────────────────────────────────────────────────────────────────────────────┘</span></pre>
+  <p class="small"><b>关键边界</b>：音频 PCM 一辈子不出手机；上云的只有 openid、订单号、余额数字。这一点要写进隐私指引，是产品的核心卖点。</p>
+</div>
+
+<!-- ================= 二、技术栈 ================= -->
+<h2>二、技术栈与选型</h2>
+<table>
+  <tr><th style="width:170px;">层</th><th style="width:250px;">选型</th><th>理由 / 约束</th></tr>
+  <tr><td>框架</td><td><b>原生小程序</b>（不用 uniapp/Taro）</td><td>Worker + WASM + WeUI 扩展库在原生下最稳；界面简单，无需跨端</td></tr>
+  <tr><td>UI 组件</td><td><b>WeUI</b>（<code>useExtendedLib.weui: true</code>）</td><td>微信官方设计团队出品，不占包体积，适老友好，开发快</td></tr>
+  <tr><td>音频解码</td><td><code>wx.createWebAudioContext</code>（2.19.0+）</td><td>系统解码器，免集成解码库；<code>getChannelData</code> 拿 Float32 PCM</td></tr>
+  <tr><td>变调引擎</td><td><b>SoundTouch</b>（C++ → Emscripten → wasm.br）</td><td>成熟，<code>setPitchSemiTones</code> 正好是半音单位；LGPL 注意商用合规，作者提供商业授权</td></tr>
+  <tr><td>MP3 编码</td><td><b>LAME</b>（C → Emscripten → wasm.br）</td><td>输出文件小、微信里能直接播放</td></tr>
+  <tr><td>计算线程</td><td><code>wx.createWorker</code> + <code>useExperimentalWorker</code></td><td>不卡界面；iOS 下实验 Worker 快数倍</td></tr>
+  <tr><td>后端</td><td><b>微信云开发 CloudBase</b>（云函数 + 云数据库）</td><td>免服务器、免域名备案，能直接收虚拟支付发货推送；免费额度够用</td></tr>
+  <tr><td>支付</td><td><b>小程序虚拟支付</b>（<code>wx.requestVirtualPayment</code>，2.19.2+）</td><td>2026-04-01 起强制，普通微信支付不可用</td></tr>
+  <tr><td>广告</td><td>激励视频 <code>wx.createRewardedVideoAd</code></td><td>UV ≥ 1000 开流量主；做成开关，审核期关闭</td></tr>
+</table>
+
+<!-- ================= 三、目录 ================= -->
+<h2>三、目录结构</h2>
+<div class="tree">miniprogram/
+├── app.js                     <b># 全局启动：字体缩放、登录、内存警告监听</b>
+├── app.json                   <b># 页面路由、useExtendedLib、workers 配置</b>
+├── app.wxss                   <b># 全局样式：WeUI 导入 + 适老变量</b>
+├── project.config.json
+├── sitemap.json
+├── config.js                  <b># ⚠️ 全局开关（广告/支付/上限），见第四节</b>
+├── pages/
+│   ├── index/                 <b># 首页：选音乐 + 三步引导 + 余额条</b>
+│   ├── pitch/                 <b># 调高调低：加减号 + 快捷 + 试听</b>
+│   ├── unlock/                <b># 怎么用：看视频 / 付费 / 包月横幅</b>
+│   ├── process/               <b># 处理中：大百分比进度</b>
+│   ├── result/                <b># 完成：试听 + 发给微信 + 重转</b>
+│   └── buy/                   <b># 买分钟数：4 个商品</b>
+├── services/
+│   ├── audio.js               <b># 选文件 / 解码 / 试听</b>
+│   ├── engine.js              <b># Worker 调度：变调 + 编码</b>
+│   ├── billing.js             <b># 计费引擎（分钟/广告/价格）</b>
+│   ├── pay.js                 <b># 虚拟支付封装</b>
+│   ├── ad.js                  <b># 激励视频状态机</b>
+│   ├── file.js                <b># 写文件 / 分享</b>
+│   └── cloud.js               <b># 云函数调用封装</b>
+├── workers/
+│   └── pitch.js               <b># Worker 入口（⚠️ 内无 wx API）</b>
+├── wasm/                      <b># ⚠️ 必须放 workers 目录外</b>
+│   ├── soundtouch.wasm.br
+│   └── lame.wasm.br
+└── utils/
+    ├── format.js              <b># 时长/价格格式化</b>
+    └── guard.js               <b># 风控与埋点</b>
+
+cloudfunctions/                <b># 云开发目录（上传时单独部署）</b>
+├── login/
+├── createOrder/
+├── onDelivered/               <b># 虚拟支付发货推送回调</b>
+├── getEntitlement/
+├── consume/
+└── queryOrder/                <b># 主动查单兜底</b></div>
+
+<!-- ================= 四、配置 ================= -->
+<h2>四、全局配置</h2>
+
+<h3>4.1 config.js —— 所有开关集中在这里</h3>
+<pre><span class="c">// ⚠️ 上线前逐项核对</span>
+module.exports = {
+  <span class="y">AD_ENABLED</span>: <span class="g">false</span>,              <span class="c">// 广告总开关：审核期必须 false，开流量主后 true</span>
+  <span class="y">PAY_ENABLED</span>: <span class="g">false</span>,             <span class="c">// 支付总开关：开通虚拟支付后 true</span>
+  <span class="y">AD_UNIT_ID</span>: <span class="g">''</span>,                 <span class="c">// 激励视频广告位 ID</span>
+  <span class="y">OFFER_ID</span>: <span class="g">''</span>,                   <span class="c">// 虚拟支付 OfferID（AppKey 只在云函数里）</span>
+
+  <span class="y">MAX_DURATION_SEC</span>: <span class="g">480</span>,          <span class="c">// 8 分钟上限</span>
+  <span class="y">PREVIEW_SEC</span>: <span class="g">15</span>,                <span class="c">// 试听时长</span>
+  <span class="y">PRICE_PER_MIN_FEN</span>: <span class="g">10</span>,          <span class="c">// 0.1 元/分钟 = 10 分</span>
+  <span class="y">AD_MINUTES_PER_UNIT</span>: <span class="g">3</span>,         <span class="c">// 每 3 分钟 1 个广告</span>
+
+  <span class="y">AD_FAIL_GRANT_MAX_PER_DAY</span>: <span class="g">3</span>,   <span class="c">// 广告失败放行每日上限（风控）</span>
+  <span class="y">RETRY_FREE_MINUTES</span>: <span class="g">30</span>,         <span class="c">// 同歌重转不重复扣的窗口</span>
+
+  <span class="y">PRODUCTS</span>: [
+    { <span class="y">id</span>: <span class="g">'pkg_10'</span>,   <span class="y">price</span>: <span class="g">100</span>,  <span class="y">minutes</span>: <span class="g">10</span>, <span class="y">name</span>: <span class="g">'10 分钟'</span> },
+    { <span class="y">id</span>: <span class="g">'pkg_30'</span>,   <span class="y">price</span>: <span class="g">300</span>,  <span class="y">minutes</span>: <span class="g">30</span>, <span class="y">name</span>: <span class="g">'30 分钟'</span> },
+    { <span class="y">id</span>: <span class="g">'pkg_60'</span>,   <span class="y">price</span>: <span class="g">600</span>,  <span class="y">minutes</span>: <span class="g">60</span>, <span class="y">name</span>: <span class="g">'60 分钟'</span> },
+    { <span class="y">id</span>: <span class="g">'pkg_month'</span>,<span class="y">price</span>: <span class="g">990</span>,  <span class="y">monthly</span>: <span class="g">true</span>, <span class="y">name</span>: <span class="g">'包月'</span> },
+  ],
+}</pre>
+
+<h3>4.2 app.json</h3>
+<pre>{
+  <span class="y">"pages"</span>: [<span class="g">"pages/index/index","pages/pitch/index","pages/unlock/index",
+            "pages/process/index","pages/result/index","pages/buy/index"</span>],
+  <span class="y">"workers"</span>: <span class="g">"workers"</span>,
+  <span class="y">"useExtendedLib"</span>: { <span class="y">"weui"</span>: <span class="g">true</span> },
+  <span class="y">"window"</span>: {
+    <span class="y">"navigationBarBackgroundColor"</span>: <span class="g">"#F7F7F7"</span>,
+    <span class="y">"navigationBarTextStyle"</span>: <span class="g">"black"</span>,
+    <span class="y">"backgroundColor"</span>: <span class="g">"#F7F7F7"</span>
+  },
+  <span class="y">"sitemapLocation"</span>: <span class="g">"sitemap.json"</span>,
+  <span class="y">"requiredBackgroundModes"</span>: [<span class="g">"audio"</span>]  <span class="c">// 试听需要</span>
+}</pre>
+
+<div class="warn">
+  <b>胶囊避让</b>：不要自定义导航栏（<code>navigationStyle: default</code>），胶囊由微信自动布局，天然避让。若未来必须自定义，用 <code>wx.getMenuButtonBoundingClientRect()</code> 计算避让。<b>任何页面右上角 87×32pt 区域内不要放可点元素</b>。
+</div>
+
+<!-- ================= 五、页面流程 ================= -->
+<h2>五、页面与流程</h2>
+<pre><span class="c">首页(index)          调高调低(pitch)         怎么用(unlock)
+  │                      │                       │
+  ├─ 选音乐 ───────────→ │                       │
+  │   chooseMessageFile  ├─ 试听 15 秒（免费）   │
+  │   decodeAudioData    │                       │
+  │   校验时长 ≤ 8min    ├─ 下一步 ────────────→ │
+  │                      │                       ├─ 看视频 ──→ 广告状态机 ──┐
+  │                      │                       ├─ 付费   ──→ 虚拟支付    ┤
+  │                      │                       └─ 包月中 ──→ 直接放行    │
+  │                      │                                            ↓
+  │                      │                                     处理中(process)
+  │                      │                                     Worker + WASM
+  │                      │                                     进度回传
+  │                      │                                            ↓
+  │                      └──────────────────────────────→ 完成(result)
+  │                                                            ├─ 试听
+  │                                                            ├─ 发给微信
+  │                                                            └─ 重转(30min 内免费)
+  │
+  └─ 买分钟数(buy) ←────── 余额不足/包月到期时引导</pre>
+
+<!-- ================= 六、音频模块 ================= -->
+<h2>六、核心模块：音频处理</h2>
+
+<h3>6.1 选文件与解码（services/audio.js）</h3>
+<pre><span class="c">// 1. 选文件（只从微信聊天，这是平台唯一入口）</span>
+<span class="y">const</span> res = <span class="y">await</span> wx.chooseMessageFile({
+  count: <span class="g">1</span>, type: <span class="g">'file'</span>,
+  extension: [<span class="g">'mp3','m4a','aac','wav','flac'</span>],   <span class="c">// ⚠️ 仅 type=file 时生效</span>
+})
+<span class="y">const</span> file = res.tempFiles[<span class="g">0</span>]
+<span class="c">// ⚠️ 单文件约 25MB 上限，先提示</span>
+<span class="y">if</span> (file.size &gt; <span class="g">25</span> * <span class="g">1024</span> * <span class="g">1024</span>) <span class="y">return</span> toast(<span class="g">'文件太大了，换一个小一点的'</span>)
+
+<span class="c">// 2. 读字节 → 解码成 PCM</span>
+<span class="y">const</span> ab = <span class="y">await</span> wx.getFileSystemManager().readFile({ filePath: file.path })
+<span class="y">const</span> ctx = wx.createWebAudioContext()
+<span class="y">const</span> audioBuffer = <span class="y">await</span> <span class="y">new</span> Promise((ok, err) =&gt;
+  ctx.decodeAudioData(ab.data, ok, err))   <span class="c">// ⚠️ 不支持的格式会走 err，要给友好提示</span>
+
+<span class="c">// 3. 拿 PCM（Float32）</span>
+<span class="y">const</span> duration = audioBuffer.duration          <span class="c">// ⚠️ 计费与校验都靠它，真实准确</span>
+<span class="y">const</span> pcmL = audioBuffer.getChannelData(<span class="g">0</span>)     <span class="c">// Float32Array</span>
+<span class="y">const</span> pcmR = audioBuffer.numberOfChannels &gt; <span class="g">1</span>
+  ? audioBuffer.getChannelData(<span class="g">1</span>) : pcmL
+
+<span class="c">// 4. 时长校验</span>
+<span class="y">if</span> (duration &gt; config.MAX_DURATION_SEC)
+  <span class="y">return</span> toast(<span class="g">'太长了，最多 8 分钟'</span>)</pre>
+<div class="warn">
+  <b>⚠️ 必须真机验证的点</b>：<code>getChannelData</code> 官方文档明确返回 Float32Array，但要 M0 在 iOS + 安卓真机各跑通一次。若某端行为异常，降级方案：打包 <b>dr_libs + mpg123 + flac</b> 的 WASM 解码器（约 300KB），自己解 mp3/wav/flac，绕开系统 API。
+</div>
+
+<h3>6.2 编译 SoundTouch → WASM（一次性构建）</h3>
+<pre><span class="c"># 需要 Emscripten（brew install emscripten 或 emsdk）</span>
+<span class="c"># SoundTouch 源码：https://www.surina.net/soundtouch/ （LGPL，商用注意合规）</span>
+
+<span class="c"># 1. 写一个薄封装 pitch_wrap.cpp，导出 C 接口：</span>
+<span class="c">#   st_new / st_setPitchSemiTones / st_setSampleRate / st_setChannels</span>
+<span class="c">#   st_putSamples(short* in, int n) / st_receiveSamples(short* out, int max)</span>
+<span class="c">#   st_flush / st_numSamples / st_destroy</span>
+
+<span class="c"># 2. 编译（关键：不用 Emscripten glue，编译成独立 wasm，自己 instantiate）</span>
+emcc pitch_wrap.cpp \
+  SoundTouch/source/SoundLib/*.cpp \
+  -O3 --no-entry -s STANDALONE_WASM \
+  -s EXPORTED_FUNCTIONS=<span class="g">'["_malloc","_free","_st_new","_st_setPitchSemiTones","_st_setSampleRate","_st_setChannels","_st_putSamples","_st_receiveSamples","_st_flush","_st_numSamples","_st_destroy"]'</span> \
+  -o soundtouch.wasm
+
+<span class="c"># 3. LAME 同理（输入 interleaved short，输出 mp3 字节流）</span>
+emcc lame_wrap.c libmp3lame/*.c -O3 --no-entry -s STANDALONE_WASM -o lame.wasm
+
+<span class="c"># 4. brotli 压缩（小程序支持 .wasm.br，体积省 60~70%）</span>
+brotli soundtouch.wasm -o miniprogram/wasm/soundtouch.wasm.br
+brotli lame.wasm      -o miniprogram/wasm/lame.wasm.br</pre>
+<div class="ok">
+  <b>体积预估</b>：SoundTouch 约 150~250KB、LAME 约 100~150KB，brotli 后合计 <b>&lt; 200KB</b>。放分包或主包均可，不构成包体压力。<br>
+  <b>建议放分包</b>，首屏不加载 WASM，用户进入选调页时再懒加载。
+</div>
+
+<h3>6.3 Worker 调度与通信协议（services/engine.js + workers/pitch.js）</h3>
+<pre><span class="c">// ⚠️ Worker 的限制（必须牢记）：</span>
+<span class="c">//   - 只能有 1 个 Worker，重建前先 terminate()</span>
+<span class="c">//   - 内部没有 wx 系列 API</span>
+<span class="c">//   - wasm 文件必须放 workers 目录外</span>
+<span class="c">//   - iOS 开 useExperimentalWorker，性能提升数倍，配合 onProcessKilled 重建</span>
+
+<span class="c">// 主线程：把 Float32 转成 Int16（内存减半），传给 Worker</span>
+<span class="y">const</span> int16L = f32to16(pcmL), int16R = f32to16(pcmR)
+<span class="y">const</span> worker = wx.createWorker(<span class="g">'workers/pitch.js'</span>, { useExperimentalWorker: <span class="g">true</span> })
+worker.postMessage({
+  type: <span class="g">'pitch'</span>,
+  semitones: <span class="g">2</span>,
+  sampleRate: audioBuffer.sampleRate,
+  channels: <span class="g">2</span>,
+  length: pcmL.length,
+  pcmL: int16L.buffer,      <span class="c">// ArrayBuffer</span>
+  pcmR: int16R.buffer,
+})
+worker.onMessage(msg =&gt; {
+  <span class="y">if</span> (msg.type === <span class="g">'progress'</span>) setProgress(msg.percent)
+  <span class="y">if</span> (msg.type === <span class="g">'done'</span>)     handleDone(msg)     <span class="c">// 拿到变调后的 Int16 PCM</span>
+  <span class="y">if</span> (msg.type === <span class="g">'error'</span>)    handleError(msg)
+})</pre>
+<pre><span class="c">// workers/pitch.js（伪代码骨架）</span>
+<span class="y">const</span> st = <span class="y">await</span> initWasm(<span class="g">'wasm/soundtouch.wasm.br'</span>)   <span class="c">// WXWebAssembly.instantiate</span>
+<span class="y">const</span> lame = <span class="y">await</span> initWasm(<span class="g">'wasm/lame.wasm.br'</span>)
+
+worker.onMessage(msg =&gt; {
+  <span class="y">if</span> (msg.type !== <span class="g">'pitch'</span>) <span class="y">return</span>
+  <span class="c">// 1. 初始化 SoundTouch</span>
+  st.st_setSampleRate(msg.sampleRate); st.st_setChannels(msg.channels)
+  st.st_setPitchSemiTones(msg.semitones)
+
+  <span class="c">// 2. 分块喂入（每块 8192 采样），每处理 5% 回传一次进度</span>
+  <span class="y">for</span> (<span class="y">let</span> i = <span class="g">0</span>; i &lt; msg.length; i += <span class="g">8192</span>) {
+    feedBlock(msg, i)
+    <span class="y">if</span> (i % (<span class="g">8192</span> * <span class="g">50</span>) === <span class="g">0</span>)
+      worker.postMessage({ type: <span class="g">'progress'</span>, percent: <span class="y">~~</span>(i / msg.length * <span class="g">90</span>) })
+  }
+  st.st_flush()
+
+  <span class="c">// 3. 拉取输出 → LAME 编码 → MP3 字节</span>
+  <span class="y">const</span> mp3Bytes = encodeLame(outL, outR, msg.sampleRate, <span class="g">160</span>) <span class="c">// 160kbps</span>
+  worker.postMessage({ type: <span class="g">'done'</span>, mp3: mp3Bytes.buffer, length: outLen })
+})</pre>
+
+<h3>6.4 写文件与分享（services/file.js）</h3>
+<pre><span class="c">// 1. 写入用户目录（配额 200MB，可自定义文件名）</span>
+<span class="y">const</span> path = `${wx.env.USER_DATA_PATH}/${safeName(fileName)}_升高${n}级.mp3`
+<span class="y">await</span> wx.getFileSystemManager().writeFile({ filePath: path, data: mp3Buffer })
+
+<span class="c">// 2. 发回微信（⚠️ 必须由用户点击触发，不能自动调）</span>
+<span class="y">await</span> wx.shareFileMessage({ filePath: path, fileName: <span class="g">'月亮代表我的心（升高2级）.mp3'</span> })
+<span class="c">// ⚠️ 小程序不能直接存进手机存储，这是唯一出口。</span>
+<span class="c">//    完成后引导：发给自己/文件助手 → 长按 → 保存。</span></pre>
+
+<h3>6.5 试听（不扣费、不看广告）</h3>
+<pre><span class="c">// 用前 15 秒快速跑一遍变调（1~2 秒完成），用 WebAudio 播放</span>
+<span class="y">const</span> preview = <span class="y">await</span> engine.pitch({ ...params, maxSec: config.PREVIEW_SEC })
+<span class="y">const</span> buf = ctx.createBuffer(channels, len, sampleRate)
+buf.copyToChannel(previewL, <span class="g">0</span>); buf.copyToChannel(previewR, <span class="g">1</span>)
+<span class="y">const</span> src = ctx.createBufferSource(); src.buffer = buf
+src.connect(ctx.destination); src.start()
+<span class="c">// ⚠️ 试听要缓存：同一首歌同一调别重复算，直接复用</span></pre>
+
+<!-- ================= 七、商业化 ================= -->
+<h2>七、核心模块：商业化</h2>
+
+<h3>7.1 计费引擎（services/billing.js）—— 定稿规则</h3>
+<pre><span class="c">// ✅ 已按用户确认的四舍五入口径实现</span>
+<span class="y">function</span> calcBilling(durationSec) {
+  <span class="y">const</span> minutes = <span class="y">Math</span>.max(<span class="g">1</span>, <span class="y">Math</span>.round(durationSec / <span class="g">60</span>))  <span class="c">// 四舍五入，最少 1 分钟</span>
+  <span class="y">return</span> {
+    minutes,                                       <span class="c">// 计费分钟（3:30 → 4，6:30 → 7）</span>
+    adCount: <span class="y">Math</span>.ceil(minutes / config.AD_MINUTES_PER_UNIT), <span class="c">// 每 3 分钟 1 个广告</span>
+    priceFen: minutes * config.PRICE_PER_MIN_FEN,  <span class="c">// 0.1 元/分钟</span>
+    priceYuan: (minutes * config.PRICE_PER_MIN_FEN / <span class="g">100</span>).toFixed(<span class="g">1</span>),
+    showMonthlyHint: minutes &gt; <span class="g">3</span>,                  <span class="c">// ≥ 2 个广告时显示包月横幅</span>
+  }
+}
+<span class="c">// 边界：3:30→4分钟→2个广告/¥0.4  6:30→7分钟→3个/¥0.7</span></pre>
+
+<h3>7.2 广告状态机（services/ad.js）—— 失败自动放行</h3>
+<pre><span class="y">async function</span> unlockByAd(needCount) {
+  <span class="y">if</span> (!config.AD_ENABLED) <span class="y">return</span> { ok: <span class="g">true</span>, free: <span class="g">true</span> }        <span class="c">// 开关关闭 = 全免费</span>
+  <span class="y">const</span> ad = wx.createRewardedVideoAd &amp;&amp;
+            wx.createRewardedVideoAd({ adUnitId: config.AD_UNIT_ID })
+  <span class="y">if</span> (!ad) <span class="y">return</span> grantFree(<span class="g">'no_ad_instance'</span>)                        <span class="c">// ① 能力不可用 → 放行</span>
+
+  <span class="y">for</span> (<span class="y">let</span> i = <span class="g">1</span>; i &lt;= needCount; i++) {
+    <span class="y">const</span> finished = <span class="y">await</span> <span class="y">new</span> Promise(resolve =&gt; {
+      <span class="y">const</span> timer = setTimeout(() =&gt; resolve(<span class="g">'timeout'</span>), <span class="g">8000</span>)        <span class="c">// ⑤ 超时</span>
+      ad.onClose(res =&gt; { clearTimeout(timer);
+        resolve(res &amp;&amp; res.isEnded === <span class="g">true</span> ? <span class="g">'done'</span> : <span class="g">'skipped'</span>) })   <span class="c">// ③ 没看完</span>
+      ad.onError(() =&gt; { clearTimeout(timer); resolve(<span class="g">'error'</span>) })       <span class="c">// ② 加载失败</span>
+      ad.show().catch(() =&gt; { clearTimeout(timer); resolve(<span class="g">'error'</span>) })
+    })
+    <span class="y">if</span> (finished === <span class="g">'done'</span>) <span class="y">continue</span>                                <span class="c">// 看完，进入下一个</span>
+    <span class="y">if</span> (finished === <span class="g">'skipped'</span>) <span class="y">return</span> { ok: <span class="g">false</span>, reason: <span class="g">'skipped'</span> } <span class="c">// 不放行，提示重看</span>
+    <span class="c">// error / timeout：</span>
+    <span class="y">if</span> (i &gt; <span class="g">1</span>) <span class="y">return</span> grantFree(<span class="g">'partial_done'</span>)                        <span class="c">// ④ 已看有效，剩余放行</span>
+    <span class="y">return</span> grantFree(finished)                                          <span class="c">// 首条失败直接放行</span>
+  }
+  <span class="y">return</span> { ok: <span class="g">true</span>, free: <span class="g">false</span> }
+}
+
+<span class="c">// 风控：广告失败放行每日上限，防断网刷</span>
+<span class="y">async function</span> grantFree(reason) {
+  <span class="y">const</span> count = <span class="y">await</span> cloud.call(<span class="g">'adGrants/today'</span>)
+  <span class="y">if</span> (count &gt;= config.AD_FAIL_GRANT_MAX_PER_DAY)
+    <span class="y">return</span> { ok: <span class="g">false</span>, reason: <span class="g">'daily_limit'</span> }
+  <span class="y">await</span> cloud.call(<span class="g">'adGrants/inc'</span>)
+  <span class="y">return</span> { ok: <span class="g">true</span>, free: <span class="g">true</span>, reason }
+}</pre>
+
+<h3>7.3 虚拟支付（services/pay.js + 云函数）</h3>
+<pre><span class="c">// ===== 前端：拉起支付（两签名都从云函数拿，前端绝不计算）=====</span>
+<span class="y">async function</span> buyProduct(product) {
+  <span class="y">const</span> { code } = <span class="y">await</span> wx.login()                          <span class="c">// 每次支付前重新 login</span>
+  <span class="y">const</span> order = <span class="y">await</span> cloud.call(<span class="g">'createOrder'</span>, { code, productId: product.id })
+  <span class="y">await</span> wx.requestVirtualPayment({
+    signData: order.signData,   <span class="c">// JSON 字符串，与后端完全一致</span>
+    paySig: order.paySig, signature: order.signature,
+    mode: <span class="g">'short_series_goods'</span>,
+  })
+  <span class="c">// ⚠️ 这里的 success 只算"弱确认"！真正发货以后端回调为准。</span>
+  <span class="y">await</span> pollEntitlement(order.outTradeNo)                <span class="c">// 轮询到权益到账</span>
+}</pre>
+<pre><span class="c">// ===== 云函数 createOrder（Node.js）=====</span>
+<span class="c">// 1. code2Session 换 openid + session_key</span>
+<span class="c">// 2. 从 PRODUCTS 查 productId 对应价格（⚠️ 金额绝不能由前端传）</span>
+<span class="c">// 3. 生成 outTradeNo（8~32 位，不能下划线开头）</span>
+<span class="c">// 4. 拼 signData 并算双签名：</span>
+<span class="y">const</span> signData = <span class="y">JSON</span>.stringify({
+  offerId, buyQuantity: <span class="g">1</span>, env: <span class="g">0</span>,           <span class="c">// ⚠️ env 个人主体固定 0 现网</span>
+  currencyType: <span class="g">'CNY'</span>, productId, goodsPrice: priceFen,   <span class="c">// ⚠️ 单位是分</span>
+  outTradeNo, attach: <span class="y">JSON</span>.stringify({ openid, productId }),
+})
+<span class="y">const</span> paySig     = hmacSha256(APP_KEY, <span class="g">'requestVirtualPayment&amp;'</span> + signData)
+<span class="y">const</span> signature  = hmacSha256(sessionKey, signData)
+<span class="c">// 5. 存订单（status: created），返回 { signData, paySig, signature, outTradeNo }</span></pre>
+<pre><span class="c">// ===== 云函数 onDelivered（发货推送，最关键）=====</span>
+<span class="c">// 1. 验签（HMAC）</span>
+<span class="c">// 2. ⚠️ 幂等：按 wx_order_id 去重，已处理直接返回成功，防重复发货</span>
+<span class="c">// 3. 更新订单 status: delivered</span>
+<span class="c">// 4. 发放权益：额度包 → users.minutes += N；包月 → users.monthlyExpireAt = now + 30d</span>
+<span class="c">// 5. 写流水 consumptions</span>
+<span class="c">// 6. 返回 { ErrCode: 0, ErrMsg: '' }</span>
+
+<span class="c">// ⚠️ 双通道兜底：发货推送可能丢，前端轮询 getEntitlement 时</span>
+<span class="c">//    若超时未到账，调用 queryOrder 主动查单补发。</span></pre>
+
+<h3>7.4 权益与扣减（云函数 getEntitlement / consume）</h3>
+<pre><span class="c">// ===== 权益优先级：包月 &gt; 分钟额度 =====</span>
+<span class="y">async function</span> getEntitlement(openid) {
+  <span class="y">const</span> u = <span class="y">await</span> db.users.doc(openid).get()
+  <span class="y">return</span> {
+    monthly: u.monthlyExpireAt &gt; <span class="y">Date</span>.now(),
+    monthlyDaysLeft: <span class="y">Math</span>.ceil((u.monthlyExpireAt - <span class="y">Date</span>.now()) / <span class="g">86400000</span>),
+    minutes: u.minutes,
+  }
+}
+
+<span class="c">// ===== 扣减（⚠️ 必须在处理成功后调用；用事务防并发）=====</span>
+<span class="y">async function</span> consume(openid, minutes) {
+  <span class="y">const</span> ent = <span class="y">await</span> getEntitlement(openid)
+  <span class="y">if</span> (ent.monthly) <span class="y">return</span> { ok: <span class="g">true</span>, deducted: <span class="g">0</span> }      <span class="c">// 包月不扣额度</span>
+  <span class="y">if</span> (ent.minutes &lt; minutes) <span class="y">return</span> { ok: <span class="g">false</span> }
+  <span class="c">// 同歌重转免费窗口</span>
+  <span class="y">if</span> (<span class="y">await</span> isRetryFree(openid, songHash, config.RETRY_FREE_MINUTES))
+    <span class="y">return</span> { ok: <span class="g">true</span>, deducted: <span class="g">0</span> }
+  <span class="c">// 事务扣减 + 写流水</span>
+}</pre>
+
+<h3>7.5 数据库表</h3>
+<table>
+  <tr><th style="width:130px;">表</th><th>字段</th><th>说明</th></tr>
+  <tr><td><code>users</code></td><td>_openid, minutes, monthlyExpireAt, createdAt</td><td>分钟额度永不过期；包月到期时间戳</td></tr>
+  <tr><td><code>orders</code></td><td>_openid, outTradeNo, productId, priceFen, status, wxOrderId, createdAt</td><td>状态机：created → paid → delivered / closed</td></tr>
+  <tr><td><code>consumptions</code></td><td>_openid, delta, reason, refId, createdAt</td><td>正负流水，充值/扣减/包月开通</td></tr>
+  <tr><td><code>adGrants</code></td><td>_openid, date, count</td><td>广告失败放行计数（每日上限 3）</td></tr>
+  <tr><td><code>retryFree</code></td><td>_openid, songHash, expireAt</td><td>同歌重转免费窗口（30 分钟）</td></tr>
+</table>
+
+<!-- ================= 八、UI 规范 ================= -->
+<h2>八、UI 规范（适老）</h2>
+
+<h3>8.1 WeUI 组件清单</h3>
+<table>
+  <tr><th style="width:200px;">组件</th><th>用在哪</th></tr>
+  <tr><td><code>mp-dialog</code></td><td>确认弹窗（"要看完才能继续哦"、"余额不足"）</td></tr>
+  <tr><td><code>mp-toptips</code></td><td>错误提示（格式不支持、文件太大、太长）</td></tr>
+  <tr><td><code>mp-cells</code> / <code>mp-cell</code></td><td>信息卡、充值列表</td></tr>
+  <tr><td><code>mp-actionsheet</code></td><td>底部选择（如果要加）</td></tr>
+  <tr><td><code>mp-progress</code></td><td>处理进度条</td></tr>
+</table>
+<pre><span class="c">// app.json 已配置 useExtendedLib.weui，页面 json 按需引入：</span>
+{
+  <span class="y">"usingComponents"</span>: {
+    <span class="y">"mp-dialog"</span>: <span class="g">"weui-miniprogram/dialog/dialog"</span>,
+    <span class="y">"mp-toptips"</span>: <span class="g">"weui-miniprogram/toptips/toptips"</span>
+  }
+}</pre>
+
+<h3>8.2 大字适配（关怀模式）</h3>
+<pre><span class="c">// app.js onLaunch</span>
+<span class="y">const</span> { fontSizeScaleFactor } = wx.getAppBaseInfo()   <span class="c">// ⚠️ 不用 wx.getSystemInfo（不再维护）</span>
+<span class="c">// 标准 = 1，关怀模式 ≈ 1.4，最大档 ≈ 1.55</span>
+<span class="y">this</span>.globalData.fontScale = <span class="y">Math</span>.max(<span class="g">1</span>, fontSizeScaleFactor || <span class="g">1</span>)
+
+<span class="c">// 页面根节点：用动态字号 + rem 布局（不要用固定 rpx 字号）</span>
+<span class="c">// app.wxss 定义 :root { --fs: 16px }，页面 style 覆盖</span>
+&lt;<span class="g">view</span> style=<span class="g">"font-size: {{16 * fontScale}}px"</span>&gt;...&lt;/<span class="g">view</span>&gt;
+<span class="c">// 组件内统一用 em/rem 相对单位，随根字号自动放大</span></pre>
+<div class="ok">
+  <b>实测参考</b>：iOS 关怀模式 scaleFactor ≈ 1.4；Android 最大档 ≈ 1.55。我们把根字号 = 16px × scale，按钮高度、行高全部用 em，自动跟随。<br>
+  <b>注意</b>：手机系统自带"字体放大"（非微信关怀模式）小程序感知不到，只能靠微信的 fontSizeScaleFactor，两者都覆盖即可。
+</div>
+
+<h3>8.3 胶囊避让</h3>
+<ul>
+  <li><b>首选</b>：默认导航栏，微信自动布局胶囊，完全不用管。</li>
+  <li>若自定义：用 <code>wx.getMenuButtonBoundingClientRect()</code> 拿胶囊位置，右上角 87×32pt 区域内不放任何可点元素。</li>
+  <li>所有页面的主按钮、重要信息<b>一律放在屏幕中下部</b>，这是适老通用做法。</li>
+</ul>
+
+<h3>8.4 话术规范（禁用词 → 推荐词）</h3>
+<table>
+  <tr><th style="width:160px;">禁用（专业词）</th><th>推荐（说人话）</th></tr>
+  <tr><td>转调 / 移调 / 半音</td><td>升高 / 降低 / 调高一点 / 调低一点</td></tr>
+  <tr><td>解锁 / 权益 / 额度</td><td>不花钱 / 直接转 / 还能用 X 分钟</td></tr>
+  <tr><td>激励视频广告</td><td>看视频 / 看个小视频</td></tr>
+  <tr><td>虚拟支付 / IAP</td><td>（用户永远看不到）</td></tr>
+  <tr><td>文件</td><td>音乐</td></tr>
+  <tr><td>文件传输助手</td><td>发给自己 / 文件助手</td></tr>
+  <tr><td>采样率 / 码率 / PCM</td><td>（用户永远看不到）</td></tr>
+</table>
+
+<!-- ================= 九、性能 ================= -->
+<h2>九、性能与内存预算（4 分钟 44.1kHz 立体声）</h2>
+<table>
+  <tr><th style="width:170px;">项目</th><th style="width:150px;">预算</th><th>措施</th></tr>
+  <tr><td>解码</td><td>1~3 秒</td><td>系统解码器，无优化空间，但可接受</td></tr>
+  <tr><td>变调（WASM）</td><td>8~20 秒（中端机）<br>30~50 秒（低端安卓）</td><td>Int16 管线、实验 Worker、分块回传进度</td></tr>
+  <tr><td>MP3 编码</td><td>5~15 秒</td><td>LAME WASM 160kbps</td></tr>
+  <tr><td>峰值内存</td><td>&lt; 180MB</td><td>Int16（减半）、处理完立即释放、监听 <code>wx.onMemoryWarning</code></td></tr>
+  <tr><td>时长上限</td><td>8 分钟</td><td>超出直接拒绝并提示，不做分块</td></tr>
+</table>
+<div class="warn">
+  <b>低端机兜底</b>：如果设备内存 &lt; 4GB 或处理超时 60 秒，自动把采样率降到 32kHz 重试一次（音质损失可控，但能跑完）。<br>
+  <b>进度条要持续动</b>：每 5% 回传一次，哪怕卡住也要有个转圈，中老年用户最怕"假死"。
+</div>
+
+<!-- ================= 十、注意事项 ================= -->
+<h2>十、开发者注意事项清单（逐条核对）</h2>
+<div class="card">
+  <ul class="check">
+    <li><b>广告开关</b>：审核期 <code>AD_ENABLED = false</code>。微信会扫描 <code>createRewardedVideoAd</code> 调用，开着会被拒。</li>
+    <li><b>苹果支付开关</b>：MP 后台虚拟支付里单独打开"苹果支付"，否则 iOS 下单直接失败（最容易漏的一步）。</li>
+    <li><b>道具价格必须与后台完全一致</b>（productId + goodsPrice，单位是分），不一致报 -15013。</li>
+    <li><b>金额绝不能由前端传给后端</b>，只传 productId，后端查表。</li>
+    <li><b>发货必须幂等</b>：按 wx_order_id 去重，推送会重复。</li>
+    <li><b>前端支付 success 只算弱确认</b>，真正发货以后端回调 + 轮询 getEntitlement 为准。</li>
+    <li><b>Worker 只能有 1 个</b>，重建前 terminate；内部无 wx API；wasm 放 workers 目录外。</li>
+    <li><b>WXWebAssembly 只支持包内路径</b>（.wasm / .wasm.br），不能网络加载、不能动态编译。</li>
+    <li><b>chooseMessageFile 单文件约 25MB</b>，flac 大文件要提示；只能选聊天记录，不能读本地文件夹。</li>
+    <li><b>shareFileMessage 必须由用户手势触发</b>，不能自动调用。</li>
+    <li><b>处理成功后再扣额度</b>，失败不扣。</li>
+    <li><b>个人主体月限额 10 万</b>，接近上限前升级主体。</li>
+    <li><b>沙箱与现网</b>：env 个人主体固定 0；iOS 苹果支付没有沙箱，要用小额真实订单测。</li>
+    <li><b>¥9.9 价格档位</b>：建道具时实测，不合法退 ¥9.5，再不行 ¥10。</li>
+    <li><b>真机优先</b>：开发者工具的音频/Worker/WASM 行为与真机有差异，一切性能结论以真机为准。</li>
+  </ul>
+</div>
+
+<!-- ================= 十一、合规 ================= -->
+<h2>十一、合规与上架清单</h2>
+<div class="card">
+  <ul class="check">
+    <li><b>类目</b>：「工具 → 图片/音频/视频处理」，<b>避开"音乐"类目</b>（需网络文化经营许可证）。</li>
+    <li><b>认证 + ICP 备案</b>：虚拟支付前置条件。</li>
+    <li><b>虚拟支付开通</b>：MP 后台 → 支付与交易 → 虚拟支付；拿 AppID / OfferID / 现网 AppKey。</li>
+    <li><b>苹果支付开关</b>：单独打开并补齐 Apple IAP 资料。</li>
+    <li><b>4 个道具</b>：¥1 / ¥3 / ¥6 / ¥9.9，发布后约 10 分钟生效。</li>
+    <li><b>流量主</b>：UV ≥ 1000 后开通，拿激励视频广告位 ID。</li>
+    <li><b>隐私指引</b>：明确写"音频仅在本机处理，不会上传服务器"。</li>
+    <li><b>版权声明</b>：设置页加"本工具仅处理您本人拥有合法权利的音乐，请尊重版权"。</li>
+    <li><b>无曲库、无搜索、无下载</b>：任何"提供音乐"的功能都不要做。</li>
+  </ul>
+</div>
+
+<!-- ================= 十二、M0 ================= -->
+<h2>十二、M0 真机验证项（开工第一件事）</h2>
+<div class="card">
+  <p>这些没过，后面都不开工。<b>用 iOS + 安卓真机各一台</b>，不能用开发者工具下结论：</p>
+  <ol>
+    <li><code>decodeAudioData</code> + <code>getChannelData</code> 拿到真实 Float32Array，数值非空、时长正确。</li>
+    <li>Worker 里 <code>WXWebAssembly.instantiate('wasm/soundtouch.wasm.br')</code> 成功。</li>
+    <li>端到端跑通：选 mp3 → 升 2 半音 → 编码 → <code>shareFileMessage</code> 发回微信 → 能正常播放、<b>时长不变、音调确实升高</b>。</li>
+    <li>实测 4 分钟音频的<b>处理耗时与峰值内存</b>，确认预算是否成立。</li>
+    <li>沙箱建 <b>¥9.9 道具</b>，确认 iOS 端能否创建（不合法就退 ¥9.5）。</li>
+    <li><code>shareFileMessage</code> 发音频文件，微信里能直接点开播放。</li>
+    <li><code>useExperimentalWorker</code> 开启后，确认 <code>onProcessKilled</code> 能正确重建。</li>
+  </ol>
+</div>
+
+<!-- ================= 十三、里程碑 ================= -->
+<h2>十三、里程碑</h2>
+<table>
+  <tr><th style="width:90px;">阶段</th><th style="width:170px;">内容</th><th>验收</th></tr>
+  <tr><td><b>M0</b><br><span class="small">2 天</span></td><td>WASM 编译 + 最小 Demo</td><td>真机跑通全链路，实测耗时/内存/¥9.9 合法性</td></tr>
+  <tr><td><b>M1</b><br><span class="small">3 天</span></td><td>界面 + 转调主流程</td><td>中老年用户无需指导完成一次转调</td></tr>
+  <tr><td><b>M2</b><br><span class="small">3 天</span></td><td>商业化（广告 + 支付 + 云函数）</td><td>三种解锁方式全链路通，发货幂等验证</td></tr>
+  <tr><td><b>M3</b><br><span class="small">2 天</span></td><td>兼容与优化（格式/内存/低端机）</td><td>低端安卓可完成；异常格式有提示</td></tr>
+  <tr><td><b>M4</b><br><span class="small">1 天</span></td><td>上架</td><td>广告/支付开关关闭状态下过审；UV 达标后打开</td></tr>
+</table>
+
+<div class="ok" style="margin-top:24px;">
+  <b>开工顺序建议</b>：先花半天在 MP 后台把<b>虚拟支付开通 + 4 个道具建好 + 苹果支付开关打开</b>（这条是外部依赖，等审核耗时），同时并行做 M0 的 WASM 编译。这样等 M0 技术验证完，支付后台也好了，不串行等待。
+</div>
+
+</div>
+</body>
+</html>

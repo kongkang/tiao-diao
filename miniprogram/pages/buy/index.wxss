@@ -1,0 +1,50 @@
+.top-warn {
+  background: #fff6ec;
+  border: 2rpx solid #f5d3a8;
+  border-radius: 24rpx;
+  padding: 28rpx 32rpx;
+  margin-bottom: 24rpx;
+  font-size: 1em;
+  color: #8a4d00;
+}
+.bold { font-weight: 700; }
+
+.pkg {
+  background: #fff;
+  border: 4rpx solid #e6e6e6;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 24rpx;
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+}
+.pkg.sel { border-color: #07c160; background: #f4fcf7; }
+.pkg-name { font-size: 1.1em; font-weight: 600; }
+.pkg-desc { font-size: 0.88em; color: #8a8f98; }
+.pkg-price {
+  margin-left: auto;
+  font-size: 1.4em;
+  font-weight: 700;
+  color: #fa9d3b;
+}
+.pkg-hot {
+  background: #fa9d3b;
+  color: #fff;
+  font-size: 0.65em;
+  border-radius: 8rpx;
+  padding: 4rpx 14rpx;
+  margin-left: 16rpx;
+  vertical-align: middle;
+}
+
+.beta-note {
+  background: #f0faf4;
+  border: 2rpx solid #b7e2ca;
+  border-radius: 20rpx;
+  padding: 22rpx 28rpx;
+  font-size: 0.95em;
+  color: #1c5c3a;
+  text-align: center;
+  margin-top: 24rpx;
+}

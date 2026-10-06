@@ -1,0 +1,25 @@
+<view class="page-root" style="font-size:{{fontScale * 16}}px;">
+
+  <!-- 完成卡 -->
+  <view class="card done-card">
+    <view class="done-icon">✅</view>
+    <view class="done-title">好了！</view>
+    <view class="done-name">{{result.fileName}}</view>
+    <view class="player">
+      <view class="play-btn" bindtap="onPlayToggle">{{playing ? '⏸' : '▶'}}</view>
+      <view class="track"><view class="track-fill" style="width:{{progress}}%;"></view></view>
+      <view class="time">{{timeText}}</view>
+    </view>
+  </view>
+
+  <button class="btn-primary" bindtap="onShare">发回微信</button>
+
+  <view class="tip-box">
+    点上面的按钮 → 发给自己（或文件助手）→ 回到微信<text class="bold">长按那条音乐，点「保存」</text>，就到手机里了。
+  </view>
+
+  <button class="btn-plain" bindtap="onNewSong">再转一首</button>
+  <button class="btn-gray" bindtap="onRetry">换个调重转</button>
+  <view class="text-sub text-small" style="text-align:center;margin-top:12rpx;">换个调重转不会重复扣分钟数</view>
+
+</view>

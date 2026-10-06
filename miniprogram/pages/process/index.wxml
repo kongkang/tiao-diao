@@ -1,0 +1,16 @@
+<view class="page-root" style="font-size:{{fontScale * 16}}px;">
+
+  <view class="card process-card">
+    <view class="percent">{{percent}}%</view>
+    <view class="pbar"><view class="pbar-fill" style="width:{{percent}}%;"></view></view>
+    <view class="process-title">正在处理，请稍等</view>
+    <view class="text-sub text-small">大约需要 {{estimateText}}\n别退出，也别切出去</view>
+  </view>
+
+  <view class="card">
+    <view class="row-line"><text class="k">音乐</text><text class="v">{{songName}}</text></view>
+    <view class="row-line"><text class="k">调整</text><text class="v">{{pitchLabel}}</text></view>
+    <view class="row-line" wx:if="{{minutes}}"><text class="k">已扣</text><text class="v">{{minutes}} 分钟</text></view>
+  </view>
+
+</view>

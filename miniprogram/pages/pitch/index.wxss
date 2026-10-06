@@ -1,0 +1,114 @@
+.file-card {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+}
+.file-icon { font-size: 72rpx; }
+.file-name {
+  font-size: 1.05em;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.pitch-box { text-align: center; padding: 48rpx 32rpx; }
+.pitch-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 44rpx;
+}
+.circle-btn {
+  width: 136rpx;
+  height: 136rpx;
+  border-radius: 50%;
+  background: #e8f8f0;
+  color: #07c160;
+  font-size: 2.2em;
+  font-weight: 300;
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.circle-btn::after { border: none; }
+.button-hover.circle-btn { background: #d3f0e0; }
+
+.pitch-stat { min-width: 280rpx; }
+.pitch-num {
+  font-size: 2.6em;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #111;
+}
+.pitch-num.down { color: #c2410c; }
+.pitch-label {
+  font-size: 1.05em;
+  color: #666;
+  margin-top: 4rpx;
+}
+
+.pitch-hint {
+  background: #f7f7f7;
+  border-radius: 20rpx;
+  padding: 24rpx 28rpx;
+  margin-top: 32rpx;
+  font-size: 0.95em;
+  color: #555;
+  white-space: pre-line;
+  text-align: left;
+}
+.bold { font-weight: 700; }
+
+.card-title {
+  font-size: 1.05em;
+  font-weight: 600;
+  margin-bottom: 20rpx;
+}
+
+/* ---- 试听播放器 ---- */
+.player-card { padding: 32rpx; }
+.player-status {
+  text-align: center;
+  font-size: 0.95em;
+  color: #666;
+  margin-bottom: 24rpx;
+}
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
+}
+.play-btn {
+  width: 112rpx;
+  min-width: 112rpx;
+  max-width: 112rpx;
+  flex: 0 0 112rpx;
+  height: 112rpx;
+  border-radius: 50%;
+  background: #07c160;
+  color: #fff;
+  font-size: 1.5em;
+  line-height: 1;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.play-btn::after { border: none; }
+.play-btn.paused { background: #ff9f43; }
+.play-btn.processing,
+.play-btn[disabled] {
+  background: #b7e6cc;
+  color: #fff;
+}
+.player-body { flex: 1; }
+.player-slider { margin: 0; }
+.player-time {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4rpx;
+  font-size: 0.85em;
+  color: #999;
+}

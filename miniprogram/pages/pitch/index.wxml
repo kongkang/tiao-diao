@@ -1,0 +1,53 @@
+<view class="page-root" style="font-size:{{fontScale * 16}}px;">
+
+  <!-- 文件卡 -->
+  <view class="card file-card">
+    <view class="file-icon">🎵</view>
+    <view class="file-info">
+      <view class="file-name">{{song.name}}</view>
+      <view class="text-sub text-small">时长 {{durationText}} ｜ {{song.channels > 1 ? '立体声' : '单声道'}}</view>
+    </view>
+  </view>
+
+  <!-- 调节器 -->
+  <view class="card pitch-box">
+    <view class="pitch-row">
+      <button class="circle-btn" bindtap="onDown">－</button>
+      <view class="pitch-stat">
+        <view class="pitch-num {{semitones < 0 ? 'down' : ''}}">{{semitonesDisplay}}</view>
+        <view class="pitch-label">{{pitchLabel}}</view>
+      </view>
+      <button class="circle-btn" bindtap="onUp">＋</button>
+    </view>
+    <view class="pitch-hint">
+      觉得伴奏<text class="bold">太低</text>、唱不上去 → 点 ＋ 升高\n
+      觉得伴奏<text class="bold">太高</text>、够不着 → 点 － 降低
+    </view>
+  </view>
+
+  <!-- 播放器：进度条就是整首歌，拖到哪儿从哪儿听，每次播 15 秒 -->
+  <view class="card player-card">
+    <view class="player-status">{{statusText}}</view>
+    <view class="player-row">
+      <button class="play-btn {{playState}}" bindtap="onPlayToggle"
+        disabled="{{playState === 'processing'}}" aria-label="播放或暂停">
+        {{playState === 'playing' ? '⏸' : '▶'}}
+      </button>
+      <view class="player-body">
+        <slider class="player-slider" min="0" max="{{durationFloor}}" step="1" value="{{previewStart}}"
+          activeColor="#07c160" backgroundColor="#eef0f3" block-size="16" block-color="#07c160"
+          bindchange="onSeek" bindchanging="onSeeking" />
+        <view class="player-time">
+          <text>{{playTimeText}}</text>
+          <text>{{playTotalText}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <button class="btn-primary" bindtap="onNext">下一步</button>
+  <view class="text-sub text-small" style="text-align:center;margin-top:20rpx;">
+    拖到哪儿就从哪儿听，每次播 15 秒；改调也会自动重唱
+  </view>
+
+</view>

@@ -1,0 +1,20 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/pitch/index",
+    "pages/unlock/index",
+    "pages/process/index",
+    "pages/result/index",
+    "pages/buy/index",
+    "pages/admin/index"
+  ],
+  "workers": "workers",
+  "window": {
+    "navigationBarBackgroundColor": "#F7F7F7",
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "把歌调高调低",
+    "backgroundColor": "#F7F7F7"
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2"
+}

@@ -1,0 +1,51 @@
+.opt {
+  background: #fff;
+  border: 4rpx solid #e6e6e6;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 24rpx;
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+}
+.opt.sel {
+  border-color: #07c160;
+  background: #f4fcf7;
+}
+.opt-icon { font-size: 64rpx; }
+.opt-title { font-size: 1.1em; font-weight: 600; }
+.opt-price {
+  margin-left: auto;
+  font-size: 1.3em;
+  font-weight: 700;
+  color: #fa9d3b;
+}
+.opt-price.free {
+  color: #07c160;
+  font-size: 1em;
+}
+
+.month-card {
+  background: #f0faf4;
+  border: 3rpx solid #a8e0c2;
+  border-radius: 24rpx;
+  padding: 28rpx 32rpx;
+  margin-bottom: 24rpx;
+}
+.month-title { font-size: 1.05em; font-weight: 600; color: #07c160; }
+
+.beta-card {
+  text-align: center;
+  padding: 48rpx 32rpx;
+}
+.beta-title {
+  font-size: 1.25em;
+  font-weight: 700;
+  color: #07c160;
+  margin-bottom: 12rpx;
+}
+.beta-text {
+  font-size: 0.95em;
+  color: #666;
+  white-space: pre-line;
+}

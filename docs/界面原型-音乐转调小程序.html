@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>音乐转调小程序 · 简化界面原型（适老 + WeUI 风格）</title>
+<style>
+  :root{
+    --weui-green:#07C160;
+    --weui-green-press:#06AD56;
+    --weui-bg:#F7F7F7;
+    --weui-cell-bg:#FFFFFF;
+    --weui-text:#111111;
+    --weui-link:#576B95;
+    --weui-warn:#FA5151;
+    --weui-orange:#FA9D3B;
+    --root-fs:16px;
+  }
+  html{font-size:var(--root-fs);}
+  html.big{--root-fs:22.4px;}   /* 大字版 ≈ 微信关怀模式 1.4x */
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0; background:#eef0f3; color:#1a1d21; padding:26px 16px 60px;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+  }
+  .head{max-width:1000px; margin:0 auto 20px;}
+  h1{font-size:22px; margin:0 0 6px;}
+  .desc{color:#5b6470; font-size:14px; line-height:1.7;}
+  .controls{max-width:1000px; margin:0 auto 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  .ctl{
+    padding:10px 18px; background:#fff; border:1.5px solid #d9dde3; border-radius:24px;
+    font-size:15px; color:#3a4149; cursor:pointer; user-select:none;
+  }
+  .ctl.on{background:#07C160; border-color:#07C160; color:#fff; font-weight:600;}
+  .tabs{max-width:1000px; margin:0 auto 20px; display:flex; gap:8px; flex-wrap:wrap;}
+  .tab{
+    padding:9px 15px; background:#fff; border:1px solid #d9dde3; border-radius:20px;
+    font-size:14px; color:#3a4149; cursor:pointer; user-select:none;
+  }
+  .tab.on{background:#07C160; border-color:#07C160; color:#fff; font-weight:600;}
+
+  /* 手机壳 */
+  .phone{
+    width:375px; height:812px; margin:0 auto; background:var(--weui-bg); border-radius:36px;
+    border:10px solid #23262b; box-shadow:0 18px 50px rgba(0,0,0,.22); position:relative; overflow:hidden;
+  }
+  .statusbar{
+    height:44px; background:var(--weui-bg); display:flex; align-items:center; justify-content:space-between;
+    padding:0 22px; font-size:13px; font-weight:600;
+  }
+  .nav{
+    height:44px; background:var(--weui-bg); display:flex; align-items:center; justify-content:center;
+    position:relative; font-size:17px; font-weight:600; border-bottom:.5px solid rgba(0,0,0,.08);
+  }
+  .nav .back{position:absolute; left:14px; font-size:24px; font-weight:400; color:#111;}
+  /* 胶囊按钮示意：所有页面内容必须避开这个区域 */
+  .capsule{
+    position:absolute; top:50px; right:12px; z-index:50;
+    width:87px; height:32px; border-radius:16px; background:rgba(255,255,255,.85);
+    border:.5px solid rgba(0,0,0,.08); backdrop-filter:blur(4px);
+    display:flex; align-items:center; justify-content:space-evenly;
+  }
+  .capsule span{font-size:15px; color:#111;}
+  .capsule i{width:.5px; height:18px; background:rgba(0,0,0,.1);}
+
+  .screen{height:724px; overflow-y:auto; padding:12px 14px; display:none;}
+  .screen.on{display:block;}
+  .screen::-webkit-scrollbar{width:0;}
+
+  /* WeUI 风格组件 */
+  .cell{
+    background:var(--weui-cell-bg); border-radius:12px; padding:16px; margin-bottom:12px;
+  }
+  .weui-btn{
+    display:block; width:100%; border:none; border-radius:12px; padding:16px 0; text-align:center;
+    font-size:1.15rem; font-weight:500; cursor:pointer;
+  }
+  .weui-btn.primary{background:var(--weui-green); color:#fff;}
+  .weui-btn.primary:active{background:var(--weui-green-press);}
+  .weui-btn.plain{background:#fff; color:var(--weui-green); border:1px solid var(--weui-green); margin-top:10px;}
+  .weui-btn.plain:active{background:#f0faf4;}
+  .weui-btn.gray{background:#fff; color:#5b6470; border:1px solid #d9dde3; margin-top:10px;}
+  .small{font-size:.85rem; color:#8a8f98; line-height:1.75;}
+  h2.t{font-size:1.05rem; margin:0 0 10px; font-weight:600;}
+  .note{
+    background:#fff8e6; border:1px dashed #e3b341; border-radius:10px; padding:10px 13px;
+    font-size:12.5px; color:#7a4a00; line-height:1.65; margin-top:12px;
+  }
+  .note.blue{background:#eef6ff; border-color:#a8c8f0; color:#1c4f8a;}
+
+  /* 首页 */
+  .hero{background:#fff; border-radius:12px; padding:28px 16px; text-align:center; margin-bottom:12px;}
+  .hero .icon{font-size:56px; line-height:1; margin-bottom:14px;}
+  .hero p{margin:0 0 20px; font-size:1.05rem; color:#333; line-height:1.7;}
+  .guide ol{margin:0; padding-left:22px;}
+  .guide li{font-size:1rem; margin:12px 0; line-height:1.65;}
+  .guide .hl{color:var(--weui-green); font-weight:600;}
+  .tagrow{display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;}
+  .tag{background:#f0f0f0; color:#666; border-radius:6px; padding:3px 10px; font-size:.85rem;}
+  .bal{
+    display:flex; justify-content:space-between; align-items:center; background:#fff; border-radius:12px;
+    padding:14px 16px; margin-bottom:12px; font-size:1rem;
+  }
+  .bal b{font-size:1.2rem; color:var(--weui-orange);}
+
+  /* 选调 */
+  .file{display:flex; align-items:center; gap:12px;}
+  .file .fi{font-size:36px;}
+  .file .fn{font-size:1.05rem; font-weight:600; margin-bottom:4px;}
+  .pitchbox{background:#fff; border-radius:12px; padding:24px 16px; text-align:center; margin-bottom:12px;}
+  .pitchrow{display:flex; align-items:center; justify-content:center; gap:22px;}
+  .cbtn{
+    width:68px; height:68px; border-radius:50%; border:none; font-size:36px; font-weight:300;
+    background:#e8f8f0; color:var(--weui-green); cursor:pointer; line-height:1;
+  }
+  .cbtn:active{background:#d3f0e0;}
+  .pstat{min-width:140px;}
+  .pnum{font-size:2.6rem; font-weight:700; color:#111; line-height:1.15;}
+  .plabel{font-size:1.05rem; color:#666; margin-top:2px;}
+  .phint{background:#f7f7f7; border-radius:10px; padding:12px 14px; margin-top:16px; font-size:.95rem; color:#555; line-height:1.7;}
+  .quick{display:flex; gap:8px; flex-wrap:wrap; justify-content:center;}
+  .qb{padding:10px 16px; background:#fff; border:1px solid #d9dde3; border-radius:22px; font-size:1rem; cursor:pointer;}
+  .qb.on{background:var(--weui-green); color:#fff; border-color:var(--weui-green);}
+
+  /* 选方式 */
+  .pricehead{background:#fff; border-radius:12px; padding:14px 16px; margin-bottom:12px;}
+  .pricehead .row{display:flex; justify-content:space-between; font-size:.98rem; padding:6px 0; color:#333;}
+  .pricehead .row span:first-child{color:#8a8f98;}
+  .opt{
+    background:#fff; border:2px solid #e6e6e6; border-radius:12px; padding:16px; margin-bottom:12px; cursor:pointer;
+    display:flex; align-items:center; gap:14px;
+  }
+  .opt.sel{border-color:var(--weui-green); background:#f4fcf7;}
+  .opt .oi{font-size:34px; flex:none;}
+  .opt .ot{font-size:1.1rem; font-weight:600; margin-bottom:3px;}
+  .opt .os{font-size:.88rem; color:#8a8f98;}
+  .opt .op{margin-left:auto; font-size:1.25rem; font-weight:700; color:var(--weui-orange); flex:none;}
+  .opt .op.free{color:var(--weui-green); font-size:1rem;}
+  .monthcard{background:#f0faf4; border:1.5px solid #a8e0c2; border-radius:12px; padding:14px 16px; margin-bottom:12px;}
+  .monthcard .mt{font-size:1.05rem; font-weight:600; color:var(--weui-green);}
+  .monthcard .ms{font-size:.88rem; color:#3d7a5a; margin-top:2px;}
+
+  /* 看视频 */
+  .adplay{background:#fff; border-radius:12px; padding:30px 16px; text-align:center; margin-bottom:12px;}
+  .adplay .icon{font-size:50px; margin-bottom:10px;}
+  .stepdots{display:flex; justify-content:center; gap:9px; margin:16px 0 6px;}
+  .dot{width:11px; height:11px; border-radius:50%; background:#e0e0e0;}
+  .dot.cur{background:var(--weui-green); box-shadow:0 0 0 4px #d5f2e3;}
+
+  /* 处理中 */
+  .prowrap{background:#fff; border-radius:12px; padding:40px 16px; text-align:center; margin-bottom:12px;}
+  .pnum2{font-size:3rem; font-weight:700; color:var(--weui-green); margin-bottom:16px;}
+  .pbar{width:100%; height:10px; background:#f0f0f0; border-radius:5px; overflow:hidden; margin-bottom:14px;}
+  .pbar i{display:block; height:10px; width:62%; background:var(--weui-green); border-radius:5px;}
+  .prowrap h3{margin:0 0 8px; font-size:1.15rem;}
+  .prowrap p{margin:0; color:#8a8f98; font-size:.95rem; line-height:1.7;}
+
+  /* 完成 */
+  .done{background:#fff; border-radius:12px; padding:34px 16px; text-align:center; margin-bottom:12px;}
+  .done .icon{font-size:58px; margin-bottom:10px;}
+  .done h3{margin:0 0 8px; font-size:1.3rem; color:var(--weui-green);}
+  .done p{margin:0 0 20px; font-size:1rem; color:#8a8f98;}
+  .player{display:flex; align-items:center; gap:12px; background:#f7f7f7; border-radius:12px; padding:14px;}
+  .player .pb{width:46px; height:46px; border-radius:50%; background:var(--weui-green); color:#fff; font-size:20px;
+    display:flex; align-items:center; justify-content:center;}
+  .bar{flex:1; height:6px; background:#e0e0e0; border-radius:3px; position:relative;}
+  .bar i{position:absolute; left:0; top:0; height:6px; width:34%; background:var(--weui-green); border-radius:3px;}
+  .player .tm{font-size:.85rem; color:#8a8f98;}
+  .tipbox{background:#f0faf4; border:1px solid #b7e2ca; border-radius:10px; padding:14px 16px;
+    font-size:.98rem; color:#1c5c3a; line-height:1.75;}
+
+  /* 充值 */
+  .pkg{background:#fff; border:2px solid #e6e6e6; border-radius:12px; padding:16px; margin-bottom:12px;
+    display:flex; align-items:center; gap:12px; cursor:pointer;}
+  .pkg.sel{border-color:var(--weui-green); background:#f4fcf7;}
+  .pkg .pn{font-size:1.1rem; font-weight:600;}
+  .pkg .pd{font-size:.88rem; color:#8a8f98;}
+  .pkg .pp{margin-left:auto; font-size:1.4rem; font-weight:700; color:var(--weui-orange);}
+  .pkg .hot{background:var(--weui-orange); color:#fff; font-size:12px; border-radius:4px; padding:2px 7px; margin-left:8px;}
+  .topwarn{background:#fff6ec; border:1px solid #f5d3a8; border-radius:12px; padding:14px 16px; margin-bottom:12px;}
+  .topwarn p{margin:0; font-size:1rem; color:#8a4d00; line-height:1.75;}
+</style>
+</head>
+<body>
+
+<div class="head">
+  <h1>界面原型 · 简化版（适老 + WeUI + 避让胶囊）</h1>
+  <div class="desc">
+    已按你的要求调整：① <b>去掉专业词</b>（不出现"转调/半音/解锁/额度"，只说"音乐、微信、文件助手、看视频、包月"）；② <b>兼容大字</b>（左上角可切换演示）；③ <b>WeUI 官方风格</b>（微信绿、白卡、圆角，简化开发）；④ <b>右上角已画出胶囊按钮</b>，内容全部避让。<br>
+    黄色虚线框是<b>设计说明</b>，不属于界面本身。
+  </div>
+</div>
+
+<div class="controls">
+  <div class="ctl on" id="ctl-normal">标准字号</div>
+  <div class="ctl" id="ctl-big">🔍 大字版演示</div>
+</div>
+
+<div class="tabs">
+  <div class="tab on" data-s="s1">① 首页</div>
+  <div class="tab" data-s="s2">② 调高调低</div>
+  <div class="tab" data-s="s3">③ 怎么用</div>
+  <div class="tab" data-s="s4">④ 看视频</div>
+  <div class="tab" data-s="s5">⑤ 处理中</div>
+  <div class="tab" data-s="s6">⑥ 完成</div>
+  <div class="tab" data-s="s7">⑦ 买分钟</div>
+</div>
+
+<div class="phone">
+  <div class="statusbar"><span>9:41</span><span>●●●  ▮</span></div>
+  <div class="capsule"><span>⋯</span><i></i><span>◉</span></div>
+
+  <!-- ========== ① 首页 ========== -->
+  <div class="screen on" id="s1">
+    <div class="nav">把歌调高调低</div>
+    <div class="bal"><span>还能用</span><b>8 分钟</b></div>
+    <div class="hero">
+      <div class="icon">🎵</div>
+      <p>把音乐升高或降低<br>唱歌跟着不费劲</p>
+      <button class="weui-btn primary">选择微信里的音乐</button>
+    </div>
+    <div class="cell guide">
+      <h2 class="t">找不到音乐？按这三步来</h2>
+      <ol>
+        <li>先把音乐发给自己<br><span class="small">（在微信里搜<span class="hl">「文件助手」</span>，发给它）</span></li>
+        <li>回到这里，点上面的按钮</li>
+        <li>点一下刚发的那条音乐</li>
+      </ol>
+    </div>
+    <div class="cell">
+      <h2 class="t">这些都能转</h2>
+      <div class="tagrow">
+        <span class="tag">mp3</span><span class="tag">m4a</span><span class="tag">wav</span>
+        <span class="tag">flac</span><span class="tag">aac</span>
+      </div>
+      <div class="small" style="margin-top:10px;">
+        一首歌最长 8 分钟。<br>
+        只在你手机里处理，<b style="color:#333;">不会传到网上</b>。
+      </div>
+    </div>
+    <div class="note">
+      <b>余额条的三种状态</b>：没买过 → 隐藏；有分钟数 → "还能用 8 分钟"；<b>包月中 → "包月畅用，还剩 12 天"</b>（不显示分钟数，避免用户困惑到底扣哪个）。
+    </div>
+  </div>
+
+  <!-- ========== ② 调高调低 ========== -->
+  <div class="screen" id="s2">
+    <div class="nav"><span class="back">‹</span>升高或降低</div>
+    <div class="cell file">
+      <div class="fi">🎵</div>
+      <div>
+        <div class="fn">月亮代表我的心.mp3</div>
+        <div class="small">时长 4 分 12 秒</div>
+      </div>
+    </div>
+    <div class="pitchbox">
+      <div class="pitchrow">
+        <button class="cbtn" onclick="adj(-1)">－</button>
+        <div class="pstat">
+          <div class="pnum" id="pnum">+2</div>
+          <div class="plabel" id="plabel">升高 2 级</div>
+        </div>
+        <button class="cbtn" onclick="adj(1)">＋</button>
+      </div>
+      <div class="phint">
+        觉得伴奏<b>太低</b>、唱不上去 → 点 <b>＋ 升高</b><br>
+        觉得伴奏<b>太高</b>、够不着 → 点 <b>－ 降低</b>
+      </div>
+    </div>
+    <div class="cell">
+      <h2 class="t">懒得调？直接点</h2>
+      <div class="quick">
+        <div class="qb" onclick="setp(-3,this)">低很多</div>
+        <div class="qb" onclick="setp(-1,this)">低一点</div>
+        <div class="qb" onclick="setp(0,this)">恢复原样</div>
+        <div class="qb on" onclick="setp(2,this)">高一点</div>
+        <div class="qb" onclick="setp(3,this)">高很多</div>
+      </div>
+    </div>
+    <button class="weui-btn primary">下一步</button>
+    <button class="weui-btn plain">▶ 先听 15 秒（不花钱）</button>
+    <div class="small" style="text-align:center;margin-top:10px;">先听听效果，满意了再决定</div>
+    <div class="note">
+      <b>去掉了什么</b>：原调的"C → D"调号、"半音"这些词全部拿掉 —— 用户只需要知道"高一点/低一点"，数字只是让他有数。<br>
+      <b>右上角胶囊</b>已避让，所有内容都压在胶囊下方。
+    </div>
+  </div>
+
+  <!-- ========== ③ 怎么用 ========== -->
+  <div class="screen" id="s3">
+    <div class="nav"><span class="back">‹</span>怎么用</div>
+    <div class="pricehead">
+      <div class="row"><span>音乐</span><span>月亮代表我的心</span></div>
+      <div class="row"><span>时长</span><span>4 分 12 秒（算 4 分钟）</span></div>
+      <div class="row"><span>调整</span><span>升高 2 级</span></div>
+    </div>
+    <div class="opt sel" onclick="pick(this)">
+      <div class="oi">📺</div>
+      <div>
+        <div class="ot">看视频，不花钱</div>
+        <div class="os">看 2 个，约 1 分钟</div>
+      </div>
+      <div class="op free">不花钱</div>
+    </div>
+    <div class="opt" onclick="pick(this)">
+      <div class="oi">⚡</div>
+      <div>
+        <div class="ot">直接转，快</div>
+        <div class="os">扣 4 分钟</div>
+      </div>
+      <div class="op">¥0.4</div>
+    </div>
+    <div class="monthcard">
+      <div class="mt">🎫 包月 ¥9.9，30 天随便转</div>
+      <div class="ms">不用看视频、不用算分钟数</div>
+    </div>
+    <button class="weui-btn primary">确定</button>
+    <div class="note">
+      <b>设计说明</b>：默认选"看视频"（用户对花钱敏感），付费路径同等醒目。<br>
+      <b>包月引导时机</b>：歌曲 ≥ 3 分 30 秒（要看 2 个以上视频）才显示这条绿色横幅，转化效率最高；短歌不显示，减少打扰。
+    </div>
+    <div class="note blue">
+      <b>隐藏逻辑</b>：视频加载失败（无广告/超时）时自动直接放行，提示"今天没有视频，这次免费帮你转"，<b>绝不卡住用户</b>；要连看多个时中途失败，已看的有效，剩余直接跳过。
+    </div>
+  </div>
+
+  <!-- ========== ④ 看视频 ========== -->
+  <div class="screen" id="s4">
+    <div class="nav"><span class="back">‹</span>看视频</div>
+    <div class="adplay">
+      <div class="icon">📺</div>
+      <h3 style="font-size:1.2rem;margin:0 0 8px;">正在放第 1 个视频</h3>
+      <div class="small">看完就能转了，中途退出不会扣</div>
+      <div class="stepdots"><div class="dot cur"></div><div class="dot"></div></div>
+      <div class="small">一共 2 个，约 1 分钟</div>
+    </div>
+    <div class="cell">
+      <div style="font-size:1rem;line-height:1.9;">
+        音乐：月亮代表我的心<br>调整：升高 2 级
+      </div>
+    </div>
+    <div class="note">
+      <b>状态机</b>：看完 → 放第 2 个；中途关掉 → 提示"要看完才能继续哦"，允许重看；
+      加载失败/超 8 秒 → <b>直接放行</b>；第 2 个也失败 → 已看完的算数，剩余直接放行。
+    </div>
+  </div>
+
+  <!-- ========== ⑤ 处理中 ========== -->
+  <div class="screen" id="s5">
+    <div class="nav">正在处理</div>
+    <div class="prowrap">
+      <div class="pnum2">62%</div>
+      <div class="pbar"><i></i></div>
+      <h3>正在处理，请稍等</h3>
+      <p>大约还有 10 秒<br>别退出，也别切出去</p>
+    </div>
+    <div class="cell">
+      <div style="font-size:1rem;line-height:1.9;">
+        音乐：月亮代表我的心<br>调整：升高 2 级<br>已扣：4 分钟
+      </div>
+    </div>
+    <div class="note">
+      <b>扣费时机</b>：建议<b>处理成功后再扣</b>。万一失败（内存不够/格式不对）不扣，用户不白花钱。
+    </div>
+  </div>
+
+  <!-- ========== ⑥ 完成 ========== -->
+  <div class="screen" id="s6">
+    <div class="nav">完成</div>
+    <div class="done">
+      <div class="icon">✅</div>
+      <h3>好了！</h3>
+      <p>月亮代表我的心（升高2级）.mp3</p>
+      <div class="player">
+        <div class="pb">▶</div>
+        <div class="bar"><i></i></div>
+        <div class="tm">1:24</div>
+      </div>
+    </div>
+    <button class="weui-btn primary">发给微信好友（存到手机）</button>
+    <div class="tipbox" style="margin-top:14px;">
+      点上面的按钮 → 发给自己（或文件助手）→ 回到微信<b>长按那条音乐，点「保存」</b>，就到手机里了。
+    </div>
+    <button class="weui-btn plain">再转一首</button>
+    <button class="weui-btn gray">换个调重转（不再扣）</button>
+    <div class="note">
+      <b>防投诉设计</b>：同一首歌换个调重新转<b>不重复扣</b>（比如 30 分钟内）。小额付费最怕"转错了还要再付一次"，这条能省掉大量售后。
+    </div>
+  </div>
+
+  <!-- ========== ⑦ 买分钟 ========== -->
+  <div class="screen" id="s7">
+    <div class="nav"><span class="back">‹</span>买分钟数</div>
+    <div class="topwarn">
+      <p>你还剩 <b>0 分钟</b>，这首歌要 4 分钟<br>买一个就能直接用，不用看视频</p>
+    </div>
+    <div class="pkg">
+      <div><div class="pn">10 分钟</div><div class="pd">试试水</div></div>
+      <div class="pp">¥1</div>
+    </div>
+    <div class="pkg">
+      <div><div class="pn">30 分钟</div><div class="pd">约 6 首歌</div></div>
+      <div class="pp">¥3</div>
+    </div>
+    <div class="pkg">
+      <div><div class="pn">60 分钟</div><div class="pd">约 12 首歌</div></div>
+      <div class="pp">¥6</div>
+    </div>
+    <div class="pkg sel">
+      <div>
+        <div class="pn">包月<span class="hot">不限量</span></div>
+        <div class="pd">30 天随便转，不看视频</div>
+      </div>
+      <div class="pp">¥9.9</div>
+    </div>
+    <button class="weui-btn primary">立即购买</button>
+    <div class="small" style="text-align:center;margin-top:12px;line-height:1.9;">
+      1 分钟 = 0.1 元，用多少扣多少，<b>不会过期</b><br>
+      包月 30 天有效，<b>下个月不会自动扣钱</b><br>
+      所有手机价格都一样
+    </div>
+    <div class="note">
+      <b>为什么不直接付 ¥0.4</b>：iPhone 上苹果的内购最低要 ¥1，几毛钱付不了；而且平台要求价格提前配好。所以改成先买分钟数再用 —— <b>单价还是 0.1 元/分钟，一分没变</b>。<br>
+      <b>价格确认</b>：包月优先 ¥9.9；建道具时若 iOS 不合法，退到 <b>¥9.5</b>；再不行用 <b>¥10</b>。
+    </div>
+  </div>
+</div>
+
+<script>
+  // 页面切换
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.addEventListener('click',()=>{
+      document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+      document.querySelectorAll('.screen').forEach(x=>x.classList.remove('on'));
+      t.classList.add('on');
+      document.getElementById(t.dataset.s).classList.add('on');
+    });
+  });
+
+  // 大字版切换
+  document.getElementById('ctl-normal').addEventListener('click',function(){
+    document.documentElement.classList.remove('big');
+    this.classList.add('on');
+    document.getElementById('ctl-big').classList.remove('on');
+  });
+  document.getElementById('ctl-big').addEventListener('click',function(){
+    document.documentElement.classList.add('big');
+    this.classList.add('on');
+    document.getElementById('ctl-normal').classList.remove('on');
+  });
+
+  // 调高调低
+  let n=2;
+  function render(){
+    const el=document.getElementById('pnum');
+    el.textContent=(n>0?'+':'')+n;
+    document.getElementById('plabel').textContent =
+      n===0?'恢复原样':(n>0?'升高 '+n+' 级':'降低 '+(-n)+' 级');
+  }
+  function adj(d){ n=Math.max(-12,Math.min(12,n+d)); render(); }
+  function setp(v,el){ n=v; render();
+    document.querySelectorAll('.qb').forEach(x=>x.classList.remove('on'));
+    el.classList.add('on');
+  }
+
+  function pick(el){
+    document.querySelectorAll('#s3 .opt').forEach(x=>x.classList.remove('sel'));
+    el.classList.add('sel');
+    const btn=document.querySelector('#s3 .weui-btn.primary');
+    const isFree = el.querySelector('.ot').textContent.indexOf('不花钱')>-1;
+    btn.textContent = isFree ? '开始看视频' : '付 ¥0.4 直接转';
+  }
+</script>
+</body>
+</html>

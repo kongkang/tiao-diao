@@ -1,0 +1,70 @@
+<view class="page-root" style="font-size:{{fontScale * 16}}px;">
+
+  <!-- 余额条（内测期间隐藏，正式版按状态显示） -->
+  <view class="balance-bar" wx:if="{{entitlement && !entitlement.free}}">
+    <text>还能用</text>
+    <text class="num {{entitlement.monthly ? 'monthly' : ''}}">
+      {{entitlement.monthly ? '包月畅用 · 还剩 ' + entitlement.monthlyDaysLeft + ' 天' : entitlement.minutes + ' 分钟'}}
+    </text>
+  </view>
+
+  <!-- 主入口 -->
+  <view class="card hero">
+    <view class="hero-icon" bindtap="onHeroTap">🎵</view>
+    <view class="hero-text">把音乐升高或降低\n唱歌跟着不费劲</view>
+    <button class="btn-primary" bindtap="onChoose">从微信选音乐</button>
+  </view>
+
+  <!-- 最近转过（本地历史，有记录才显示） -->
+  <view class="card" wx:if="{{historyList.length > 0}}">
+    <view class="card-title">最近转过的歌</view>
+    <view class="his-item" wx:for="{{historyList}}" wx:key="ts">
+      <view class="his-main">
+        <view class="his-name">{{item.name}}</view>
+        <view class="text-sub text-small">{{item.pitchLabel}}</view>
+      </view>
+      <view class="text-sub text-small">{{item.timeText}}</view>
+    </view>
+  </view>
+
+  <!-- 三步引导（转化率关键：中老年用户最容易卡在"文件在微信里"） -->
+  <view class="card">
+    <view class="card-title">找不到音乐？按这三步来</view>
+    <view class="guide-item">
+      <view class="guide-num">1</view>
+      <view>先把音乐发给自己\n<text class="text-sub text-small">（在微信里搜「文件助手」，发给它）</text></view>
+    </view>
+    <view class="guide-item">
+      <view class="guide-num">2</view>
+      <view>回到这里，点上面的绿色按钮</view>
+    </view>
+    <view class="guide-item">
+      <view class="guide-num">3</view>
+      <view>点一下刚发的那条音乐</view>
+    </view>
+  </view>
+
+  <!-- 格式说明 -->
+  <view class="card">
+    <view class="card-title">这些都能转</view>
+    <view class="tag-row">
+      <text class="tag">mp3</text>
+      <text class="tag">m4a</text>
+      <text class="tag">wav</text>
+      <text class="tag">flac</text>
+      <text class="tag">aac</text>
+    </view>
+    <view class="text-sub text-small" style="margin-top:16rpx;">
+      一首歌最长 8 分钟。\n只在你手机里处理，不会传到网上。
+    </view>
+  </view>
+
+  <!-- 内测横幅 -->
+  <view class="beta-note" wx:if="{{entitlement && entitlement.free}}">
+    内测期间：全部功能免费使用，不用看视频
+  </view>
+
+  <!-- 管理员入口（解锁后才可见） -->
+  <view class="admin-entry" wx:if="{{isAdmin}}" bindtap="onGoAdmin">管理</view>
+
+</view>

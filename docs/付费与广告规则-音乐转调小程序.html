@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>付费与广告规则 · 可实现性分析</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#fff; --line:#e6e8eb; --text:#1a1d21; --sub:#5b6470;
+    --brand:#1f6feb; --ok:#0f7b46; --ok-soft:#e6f6ee; --warn:#9a5b00; --warn-soft:#fff5e0;
+    --danger:#b02a37; --danger-soft:#fdeaec;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; padding:0 20px 80px; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+    font-size:15px; line-height:1.75;}
+  .wrap{max-width:900px; margin:0 auto;}
+  header{padding:48px 0 24px; border-bottom:2px solid var(--line); margin-bottom:30px;}
+  h1{font-size:29px; margin:0 0 10px;}
+  .meta{color:var(--sub); font-size:14px;}
+  h2{font-size:22px; margin:44px 0 14px; padding-left:12px; border-left:4px solid var(--brand);}
+  h3{font-size:17px; margin:24px 0 10px;}
+  p{margin:10px 0;} ul,ol{margin:10px 0; padding-left:22px;} li{margin:6px 0;}
+  code{background:#eef1f5; padding:2px 6px; border-radius:4px; font-size:13px;
+       font-family:"SF Mono",Menlo,Consolas,monospace;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin:16px 0;}
+  .verdict{background:var(--ok-soft); border:1px solid #b7e2ca; border-radius:12px; padding:20px 22px; margin:20px 0;}
+  .verdict h2{margin:0 0 8px; border:none; padding:0; font-size:20px; color:var(--ok);}
+  .warn{background:var(--warn-soft); border:1px solid #f0d69a; border-radius:10px; padding:14px 18px; margin:14px 0;}
+  .risk{background:var(--danger-soft); border:1px solid #f2c2c7; border-radius:10px; padding:14px 18px; margin:14px 0;}
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; background:#fff;}
+  th,td{border:1px solid var(--line); padding:9px 12px; text-align:left; vertical-align:top;}
+  th{background:#f2f4f7; font-weight:600;}
+  .tag{display:inline-block; padding:2px 8px; border-radius:5px; font-size:12px; margin-right:4px;}
+  .t-ok{background:var(--ok-soft); color:var(--ok);}
+  .t-warn{background:var(--warn-soft); color:var(--warn);}
+  .t-risk{background:var(--danger-soft); color:var(--danger);}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr;}}
+  pre{background:#1e2229; color:#e6e9ef; padding:16px 18px; border-radius:10px; overflow-x:auto;
+      font-size:12.5px; line-height:1.65; font-family:"SF Mono",Menlo,Consolas,monospace;}
+  pre b{color:#7fd1a0;}
+  .small{font-size:13px; color:var(--sub);}
+  .fsm{border-left:3px solid var(--brand); padding-left:16px; margin:14px 0;}
+  .fsm div{padding:5px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>付费与广告规则 · 可实现性分析</h1>
+  <div class="meta">v1.0 ｜ 2026-10-05 ｜ 针对「按时长阶梯广告 + 付费跳过 + 广告失败放行」三条规则的落地方案</div>
+</header>
+
+<div class="verdict">
+  <h2>结论：三条都能做，但第 2 条要换一个形式</h2>
+  <table style="margin-top:10px;">
+    <tr><th style="width:230px;">你的需求</th><th style="width:80px;">能否实现</th><th>说明</th></tr>
+    <tr><td>① 按音频时长阶梯：1个广告抵3分钟，超3分钟2个，超6分钟3个</td><td><span class="tag t-ok">完全可以</span></td><td>纯前端逻辑，拿到时长后算一次就行，零难度</td></tr>
+    <tr><td>② 不想看广告可直接付费，0.1元/分钟</td><td><span class="tag t-warn">能做，但形态要改</span></td><td>见下方：不能"按分钟实时出一笔小额订单"，要改成<b>先买分钟额度包、再按分钟扣</b>。单价 0.1元/分钟 可以保留不变</td></tr>
+    <tr><td>③ 广告拉取失败就直接放行</td><td><span class="tag t-ok">完全可以</span></td><td>监听广告错误回调直接放行即可，推荐做法</td></tr>
+  </table>
+</div>
+
+<!-- ============ 一、规则表 ============ -->
+<h2>一、阶梯规则（已按"四舍五入"定稿）</h2>
+<div class="card">
+  <p><b>统一算法（两行代码，广告数与付费金额共用同一套口径）</b>：</p>
+  <pre><b>计费分钟 M = max(1, Math.round(秒 / 60))   // 四舍五入到分钟，最少 1 分钟
+广告数   = Math.ceil(M / 3)                 // 每 3 分钟 1 个广告
+付费金额 = M × 0.1 元</b></pre>
+  <p class="small">时长来源 = 解码后的 <code>AudioBuffer.duration</code>（秒），精确可靠。</p>
+
+  <table>
+    <tr><th style="width:130px;">音频时长 T</th><th style="width:90px;">计费分钟</th><th style="width:90px;">广告数</th><th style="width:90px;">付费</th><th>备注</th></tr>
+    <tr><td>0 ~ 1:29</td><td>1</td><td><b>1 个</b></td><td>¥0.1</td><td>最短也按 1 分钟计</td></tr>
+    <tr><td>1:30 ~ 2:29</td><td>2</td><td><b>1 个</b></td><td>¥0.2</td><td></td></tr>
+    <tr><td>2:30 ~ 3:29</td><td>3</td><td><b>1 个</b></td><td>¥0.3</td><td></td></tr>
+    <tr style="background:#fff8e6;"><td><b>3:30 ~ 4:29</b></td><td>4</td><td><b>2 个</b></td><td>¥0.4</td><td>← 你要的边界：3:30 起进位</td></tr>
+    <tr><td>4:30 ~ 5:29</td><td>5</td><td><b>2 个</b></td><td>¥0.5</td><td>5 分钟歌 = ¥0.5，与你原始定价一致</td></tr>
+    <tr><td>5:30 ~ 6:29</td><td>6</td><td><b>2 个</b></td><td>¥0.6</td><td>正好 6:00 仍是 2 个</td></tr>
+    <tr style="background:#fff8e6;"><td><b>6:30 ~ 7:29</b></td><td>7</td><td><b>3 个</b></td><td>¥0.7</td><td>← 第二个边界同样按四舍五入推得</td></tr>
+    <tr><td>7:30 ~ 8:00</td><td>8</td><td><b>3 个</b></td><td>¥0.8</td><td>时长上限 8 分钟</td></tr>
+  </table>
+
+  <div class="warn" style="margin-bottom:0;">
+    <b>两处请你确认</b>：<br>
+    ① 按你说"3:30 起算 2 个"，我用同一个四舍五入规则推出第二个边界是 <b>6:30 起算 3 个</b>（6:29 仍是 2 个）。这样两条边界口径一致，如果你希望 6:00 就算 3 个请告诉我。<br>
+    ② <b>付费分钟也一并改成四舍五入</b>了（原来是"不足 1 分钟按 1 分钟"的向上取整）。4 分 12 秒的歌现在算 4 分钟 = ¥0.4，比原来便宜 0.1 元。好处是广告数和付费金额用同一套口径、用户更好理解，也不会出现"差几秒多收一毛"的投诉。
+  </div>
+</div>
+
+<div class="warn">
+  <b>体验提醒</b>：8 分钟的歌要连续看 3 个 30 秒广告 = 90 秒，再加处理 30 秒，用户要等 2 分钟。按钮上务必直接写明"需要看 3 个视频，约 1 分半"，让用户有预期，别中途流失。
+</div>
+
+<!-- ============ 二、付费 ============ -->
+<h2>二、付费功能：有一条硬约束必须绕开</h2>
+
+<div class="risk">
+  <b>约束 1（合规）：卖"解锁权益"不能用普通微信支付。</b><br>
+  自 <b>2026 年 4 月 1 日</b>起，微信小程序要求：凡在小程序内售卖虚拟商品/服务（解锁功能、额度、会员都算），<b>必须全终端接入官方「虚拟支付」<code>wx.requestVirtualPayment</code></b>，不得再用 <code>wx.requestPayment</code>，也不得引导用户去公众号/H5/App 付款。违规会被风险提醒、限制功能甚至终止服务；审核也会直接打回（这是目前最常见的小程序被拒原因之一）。
+</div>
+
+<div class="risk">
+  <b>约束 2（苹果）：iOS 端内购最低价格点是 ¥1。</b><br>
+  虚拟支付在 iOS 端走的是 Apple IAP 通道，而苹果中国区的内购价格档位<b>最低 ¥1</b>（1~10 元之间每 0.5 元一档）。也就是说 <b>¥0.1 / ¥0.3 / ¥0.5 / ¥0.8 这种小额订单，在 iPhone 上根本发不出去</b>。安卓端不受此限，但你不可能只做安卓。
+</div>
+
+<div class="risk">
+  <b>约束 3（平台）：价格必须后台预先配置，不能前端传任意金额。</b><br>
+  虚拟支付的道具（productId + 价格）要在 MP 后台配好并发布，支付时校验 <code>productId</code> 与 <code>goodsPrice</code> 完全一致，不一致直接报错。所以"每次按歌曲时长算出一个新价格"这种动态定价，在道具模式下做不到。
+</div>
+
+<h3>✅ 推荐方案：改成「分钟额度包」，单价仍是 0.1 元/分钟</h3>
+<div class="card">
+  <p>用户先买额度，转歌时按分钟扣额度。<b>你定的 0.1 元/分钟的单价完全保留</b>，用户感受到的价格一分没变，只是从"每次单独付 0.5 元"变成"买 1 块钱的额度，够转 10 分钟的歌"。</p>
+  <table>
+    <tr><th style="width:150px;">商品</th><th style="width:100px;">售价</th><th style="width:130px;">权益</th><th>说明</th></tr>
+    <tr><td>体验包</td><td><b>¥1</b></td><td>10 分钟额度</td><td>最低档，刚好卡住苹果 ¥1 的下限</td></tr>
+    <tr><td>常用包</td><td><b>¥3</b></td><td>30 分钟额度</td><td>约够转 6~8 首歌</td></tr>
+    <tr><td>超值包</td><td><b>¥6</b></td><td>60 分钟额度</td><td>单价可略优惠，比如给 70 分钟</td></tr>
+    <tr style="background:#e6f6ee;"><td><b>包月卡</b></td><td><b>¥9.9</b></td><td><b>30 天不限量</b></td><td>算力全在本地，边际成本为零，可以放开给</td></tr>
+  </table>
+  <p><b>扣费逻辑</b>：转 5 分钟的歌 → 扣 5 分钟额度 → 实际花了 ¥0.5，与你原本的定价一致。</p>
+  <p><b>优先级规则</b>：<span class="tag t-ok">包月 &gt; 额度</span> —— 包月有效期内<b>不扣额度</b>；额度<b>长期有效、永不过期</b>（这点要写进页面，用户最怕"买了会过期"）。</p>
+  <p><b>为什么这样更好</b>：① 满足苹果 ¥1 下限，iOS 能真正买到；② 一次充值多次使用，中老年用户不用每首歌都走一次支付流程（这是转化率的关键）；③ 避免几十笔小额订单的手续费损耗；④ 仍支持你想要的"按分钟计费"。</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">统一定价原则（按你的要求确认）</h3>
+  <p><b>三端标价完全一致，绝不因手续费区别定价。</b>iOS 被苹果抽走 12%、安卓只要 1%，这个差额<b>由我们承担，用户无感</b>——用 iPhone 和用安卓看到的价格一模一样。</p>
+  <table>
+    <tr><th style="width:130px;">商品</th><th style="width:110px;">统一标价</th><th>用户实际权益</th></tr>
+    <tr><td>体验包</td><td>¥1</td><td>10 分钟</td></tr>
+    <tr><td>常用包</td><td>¥3</td><td>30 分钟</td></tr>
+    <tr><td>超值包</td><td>¥6</td><td>60 分钟</td></tr>
+    <tr><td>包月卡</td><td>¥9.9</td><td>30 天不限量</td></tr>
+  </table>
+  <p class="small">换算下来：<b>额度包统一 0.1 元/分钟</b>；包月 ¥9.9 相当于 99 分钟额度的价格买"不限量"，重度用户（每月转 20 首以上）会自然被引导到包月。</p>
+</div>
+
+<div class="warn">
+  <b>⚠️ ¥9.9 有个待验证项（M0 阶段必须实地确认）</b><br>
+  苹果中国区内购价格档位在 1~10 元区间是<b>每 0.5 元一档</b>（1.0 / 1.5 / … / 9.5 / 10.0），但苹果 2023 年新定价机制也支持 <code>X9.90</code> 这类惯例价（官方价格表中有 9.90 这一档）。<br>
+  <b>处理办法</b>：建道具时先填 ¥9.9，若 MP 后台或 iOS 沙箱报价格不合法，就退到 <b>¥9.5</b>（保底方案，同样在档位内）。这个必须在 M0 建道具时实测，不能想当然。<br>
+  另外，¥1 / ¥3 / ¥6 三档都在苹果档位内，无风险。
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">包月卡要不要"自动续费"？</h3>
+  <table>
+    <tr><th style="width:150px;">方式</th><th>优点</th><th>缺点</th><th style="width:90px;">建议</th></tr>
+    <tr>
+      <td><b>不自动续费</b><br><span class="small">买一次管 30 天</span></td>
+      <td>无"被偷偷扣钱"投诉；用户心理负担小，决策快</td>
+      <td>需要用户主动来续，复购率低一些</td>
+      <td><span class="tag t-ok">首版用它</span></td>
+    </tr>
+    <tr>
+      <td><b>自动续费</b><br><span class="small">连续包月</span></td>
+      <td>收入稳定，LTV 高</td>
+      <td>费率更高（第二笔起 10%）；中老年用户极易忘记取消 → <b>投诉和退款重灾区</b></td>
+      <td>二期再评估</td>
+    </tr>
+  </table>
+  <p class="small">面向中老年用户，我建议首版<b>坚决不做自动续费</b>。到期前 3 天在首页温和提醒一次即可。</p>
+</div>
+
+<h3>两种虚拟支付模式怎么选</h3>
+<table>
+  <tr><th style="width:190px;">模式</th><th>优点</th><th>缺点</th><th style="width:90px;">建议</th></tr>
+  <tr>
+    <td><b>道具直购</b><br><code>short_series_goods</code><br><span class="small">买"10分钟额度包"这个道具</span></td>
+    <td>链路短、上线快；自己在云数据库记余额，逻辑完全可控</td>
+    <td>余额要自己记账（订单/退款/防重复发货）</td>
+    <td><span class="tag t-ok">首版用它</span></td>
+  </tr>
+  <tr>
+    <td><b>代币充值</b><br><code>short_series_coin</code><br><span class="small">充"转调分钟"代币</span></td>
+    <td>微信侧托管余额（权威账本），可做起充赠送、礼包等运营</td>
+    <td>复杂（余额/流水/补偿）；<b>代币兑换比例一旦发布不可修改</b>；研发量明显更大</td>
+    <td>二期再考虑</td>
+  </tr>
+</table>
+<p class="small">平台自己的建议也是"低频单次用道具，高频复购用代币"。我们的量级先用道具直购 + 自建余额，跑通后再升级，避免一开始踩代币的坑（尤其是"兑换比例发布后不可改"这条不可逆）。</p>
+
+<!-- ============ 三、架构影响 ============ -->
+<h2>三、这对"纯本地算力"有影响吗？没有</h2>
+<div class="card">
+  <p><b>音频处理依然 100% 在手机上跑</b>，一首歌的 PCM 数据一刻都不会离开设备。需要走网络的只有「订单、签名、余额」这几 KB 的数据。</p>
+  <p>但虚拟支付<b>强制要求服务端</b>：<code>AppKey</code> 和 <code>session_key</code> 绝不能出现在前端代码里，<code>paySig</code> / <code>signature</code> 两个签名必须在服务端算。所以要配一个极轻量的后端。</p>
+  <p><b>推荐用微信云开发（CloudBase）</b>：云函数 + 云数据库，不用买服务器、不用备案域名、免费额度足够小工具跑，还能直接接收虚拟支付的发货推送回调。</p>
+  <div class="fsm">
+    <div>① 前端 <code>wx.login</code> 拿 code → 云函数换 openid + session_key</div>
+    <div>② 前端点"买 ¥1 额度包" → 云函数生成订单号 + 算双签名 → 返回参数</div>
+    <div>③ 前端 <code>wx.requestVirtualPayment(...)</code> → 用户付款</div>
+    <div>④ 微信发货推送 → 云函数验签 → 数据库余额 +10 分钟（<b>必须做幂等</b>，按订单号去重）</div>
+    <div>⑤ 前端查余额 → 转歌时云函数扣减分钟数 → 放行处理</div>
+  </div>
+  <p class="small"><b>关键原则</b>：前端返回的 <code>success</code> 只算"弱确认"，<b>一律以后端订单状态为准</b>；回调 + 主动查单双通道兜底，防止掉单。</p>
+</div>
+
+<!-- ============ 四、广告失败放行 ============ -->
+<h2>四、广告失败自动放行（第 3 条需求）</h2>
+<div class="card">
+  <p>这条不仅"能做"，而且<b>强烈建议做</b>——广告填充率不可能 100%，尤其新小程序初期广告池不稳，硬卡住只会让用户白流失。</p>
+  <h3>完整状态机</h3>
+  <div class="fsm">
+    <div>① <b>广告实例创建失败</b>（未开通流量主 / 基础库过低 / 返回 null）→ <b>直接放行</b>，不提示</div>
+    <div>② <b>load() 失败 或 onError</b>（如 1004 无广告填充）→ <b>放行</b> + 轻提示"今天广告已用完，本次免费为您处理"</div>
+    <div>③ <b>用户中途关闭视频</b>（<code>isEnded = false</code>）→ <b>不放行</b>，提示"需要看完才能继续哦"，允许重看</div>
+    <div>④ <b>多广告序列中途失败</b>（比如要 2 个，第 2 个拉不到）→ <b>已看的算数，剩余直接放行</b>（绝不能让用户白看）</div>
+    <div>⑤ <b>加载超过 8 秒没响应</b> → 按失败处理，直接放行</div>
+  </div>
+  <p class="small"><b>风控补充</b>：防止有人断网刷免费次数，可加"广告失败放行每日上限"（如 3 次/天，本地计数即可），超限则引导付费或稍后再试。首版不做也行，上线后看数据再补。</p>
+</div>
+
+<pre><b>// 广告解锁核心逻辑（示意）</b>
+async function unlockByAd(needCount) {
+  const ad = wx.createRewardedVideoAd && wx.createRewardedVideoAd({ adUnitId })
+  if (!ad) return true            // ① 能力不可用 → 放行
+
+  for (let i = 1; i <= needCount; i++) {
+    const ok = await new Promise(resolve => {
+      const timer = setTimeout(() => resolve(false), 8000)   // ⑤ 超时兜底
+      ad.onClose(res => {
+        clearTimeout(timer)
+        resolve(res &amp;&amp; res.isEnded === true)                 // ③ 没看完不算
+      })
+      ad.onError(() => { clearTimeout(timer); resolve(false) }) // ② 加载失败
+      ad.show().catch(() => { clearTimeout(timer); resolve(false) })
+    })
+    if (!ok) {
+      // ④ 中途失败：已看的不浪费，剩余直接放行
+      return i > 1 ? true : (await allowFreeByAdFailure())   // ② 首条失败也放行
+    }
+  }
+  return true
+}</pre>
+
+<!-- ============ 五、钱账 ============ -->
+<h2>五、收益测算（帮你判断定价合不合理）</h2>
+<table>
+  <tr><th style="width:180px;">路径</th><th>你实际到手</th><th>说明</th></tr>
+  <tr>
+    <td>付费 · 安卓/鸿蒙</td><td>¥0.5 → <b>约 ¥0.495</b></td>
+    <td>虚拟支付技术服务费当前限时优惠 <b>1%</b>（标准费率 10%，优惠随时可能结束）</td>
+  </tr>
+  <tr>
+    <td>付费 · iOS</td><td>¥0.5 → <b>约 ¥0.44</b></td>
+    <td>苹果佣金 <b>12%</b>（小程序合作伙伴计划优惠后；标准 17%）。腾讯的 5% 当前限时减免</td>
+  </tr>
+  <tr>
+    <td>广告（5分钟歌 = 2 个）</td><td>约 <b>¥0.06 ~ ¥0.24</b></td>
+    <td>激励视频 eCPM 波动大，按 ¥30~¥120 估算；新号前期通常偏低</td>
+  </tr>
+</table>
+
+<div class="card">
+  <h3 style="margin-top:0;">四个商品的到手测算（三端统一标价，差额我们自己吃）</h3>
+  <table>
+    <tr><th style="width:110px;">商品</th><th style="width:90px;">用户付</th><th style="width:130px;">安卓到手</th><th style="width:130px;">iOS 到手</th><th>说明</th></tr>
+    <tr><td>体验包</td><td>¥1</td><td>¥0.99</td><td>¥0.88</td><td>10 分钟额度</td></tr>
+    <tr><td>常用包</td><td>¥3</td><td>¥2.97</td><td>¥2.64</td><td>30 分钟额度</td></tr>
+    <tr><td>超值包</td><td>¥6</td><td>¥5.94</td><td>¥5.28</td><td>60 分钟额度</td></tr>
+    <tr style="background:#e6f6ee;"><td><b>包月卡</b></td><td>¥9.9</td><td>¥9.80</td><td>¥8.71</td><td>30 天不限量；重度用户一个月转 20 首以上就划算</td></tr>
+  </table>
+  <p class="small">差异只体现在我们这侧，<b>用户看到的永远是同一个价格</b>。若苹果抽成后续上调，也不要改标价，改的只是我们的毛利。</p>
+</div>
+
+<div class="warn">
+  <b>商业判断</b>：付费收入约为广告的 <b>2~8 倍</b>，所以 ① 付费入口要和"看广告"同等醒目；② <b>超过 3 分 30 秒（要 2 个广告以上）的歌曲，建议主动引导包月</b>——"看 2 个视频约 1 分钟，或开通包月 ¥9.9 一个月随便转"，这是转化效率最高的时机。<br>
+  但中老年用户对花钱敏感，实际选哪条路得看数据，两种入口都给、上线后 A/B 观察。
+</div>
+<div class="warn">
+  <b>结论：付费路径的收入明显高于广告路径</b>（约 2~8 倍）。所以界面上<b>建议把"付费"放在更显眼的位置</b>，或者对超过 3 分钟（要 2 个广告以上）的歌曲主动提示"看 2 个视频约 1 分钟，或花 ¥0.5 直接转"。<br>
+  但要注意：中老年用户对"花钱"敏感，实际转化率要看数据，建议两种入口都给、A/B 观察。
+</div>
+
+<!-- ============ 六、开通清单 ============ -->
+<h2>六、要开通的东西（按顺序）</h2>
+<div class="card">
+  <ol>
+    <li><b>小程序类目必须含「工具」</b>（虚拟支付只开放给工具/文娱/社交/资讯/深度合成等类目；我们选的"工具-音视频处理"正好符合 ✅）</li>
+    <li><b>完成小程序认证 + ICP 备案</b>（个人主体 30 元/年，也能开虚拟支付，但月限额 10 万；企业/个体户无限额）</li>
+    <li><b>MP 后台 → 支付与交易 → 虚拟支付 → 开通</b>：拿 AppID、OfferID、现网 AppKey（沙箱 AppKey 仅测试用）</li>
+    <li><b>打开"苹果支付"开关</b>并补齐 Apple IAP 资料 —— <span class="tag t-risk">很多人漏这步</span>，不开的话 iOS 下单直接失败</li>
+    <li><b>道具管理里建 4 个道具</b>（¥1 体验包 / ¥3 常用包 / ¥6 超值包 / ¥9.9 包月卡），发布到现网（约 10 分钟生效）。<b>建包月卡时验证 ¥9.9 是否合法</b>，不合法改 ¥9.5</li>
+    <li><b>开通流量主</b>（累计 UV ≥ 1000）拿广告位 ID —— 这条和付费不冲突，可以并行推进</li>
+  </ol>
+  <p class="small">注意：虚拟支付商户号是<b>独立的一套</b>，和普通微信支付分开结算（T+3；iOS 由苹果月结，约 45~60 天）。</p>
+</div>
+
+<!-- ============ 七、决策 ============ -->
+<h2>七、决策状态（2026-10-05 更新）</h2>
+<div class="card">
+  <h3 style="margin-top:0;color:#0f7b46;">✅ 已确认</h3>
+  <ol>
+    <li><b>接受分钟额度包</b>，且<b>三端统一标价</b>：不因 iOS 抽成而区别定价，差额由我们承担，用户无感。</li>
+    <li><b>边界用四舍五入</b>：3:30 以内 1 个广告，3:30 起 2 个；同规则推出 6:30 起 3 个。</li>
+    <li><b>档位</b>：¥1（10分钟）/ ¥3（30分钟）/ ¥6（60分钟）/ <b>¥9.9 包月（30 天不限量）</b>。</li>
+    <li><b>包月首版不做自动续费</b>，避免中老年用户忘记取消引发投诉。</li>
+  </ol>
+
+  <h3 style="color:#9a5b00;">⏳ 待 M0 实地验证</h3>
+  <ol>
+    <li><b>¥9.9 价格档位</b>（用户已确认策略：优先 ¥9.9，不合法退 ¥9.5，再退 ¥10）—— 建道具时实测，这是唯一可能被迫改标价的地方。</li>
+  </ol>
+  <p class="small">边界口径与付费分钟的四舍五入规则（4分12秒 → ¥0.4）已由用户在 2026-10-05 确认。</p>
+</div>
+
+</div>
+</body>
+</html>

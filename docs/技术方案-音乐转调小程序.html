@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>音乐转调小程序 · 技术可行性方案</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --line:#e6e8eb; --text:#1a1d21; --sub:#5b6470;
+    --brand:#1f6feb; --brand-soft:#eaf2ff; --ok:#0f7b46; --ok-soft:#e6f6ee;
+    --warn:#9a5b00; --warn-soft:#fff5e0; --danger:#b02a37; --danger-soft:#fdeaec;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; padding:0 20px 80px; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+    font-size:15px; line-height:1.75;
+  }
+  .wrap{max-width:900px; margin:0 auto;}
+  header{padding:48px 0 24px; border-bottom:2px solid var(--line); margin-bottom:32px;}
+  h1{font-size:30px; margin:0 0 10px; letter-spacing:-.3px;}
+  .meta{color:var(--sub); font-size:14px;}
+  h2{font-size:22px; margin:44px 0 14px; padding-left:12px; border-left:4px solid var(--brand);}
+  h3{font-size:17px; margin:26px 0 10px;}
+  p{margin:10px 0;}
+  ul,ol{margin:10px 0; padding-left:22px;}
+  li{margin:6px 0;}
+  code{background:#eef1f5; padding:2px 6px; border-radius:4px; font-size:13px;
+       font-family:"SF Mono",Menlo,Consolas,monospace;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin:16px 0;}
+  .verdict{background:var(--ok-soft); border:1px solid #b7e2ca; border-radius:12px; padding:20px 22px; margin:20px 0;}
+  .verdict h2{margin:0 0 8px; border:none; padding:0; font-size:20px; color:var(--ok);}
+  .verdict p{margin:8px 0 0;}
+  .warn{background:var(--warn-soft); border:1px solid #f0d69a; border-radius:10px; padding:14px 18px; margin:14px 0;}
+  .risk{background:var(--danger-soft); border:1px solid #f2c2c7; border-radius:10px; padding:14px 18px; margin:14px 0;}
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; background:#fff;}
+  th,td{border:1px solid var(--line); padding:9px 12px; text-align:left; vertical-align:top;}
+  th{background:#f2f4f7; font-weight:600;}
+  .flow{background:#fff; border:1px solid var(--line); border-radius:12px; padding:22px; margin:18px 0;}
+  .step{display:flex; gap:14px; align-items:flex-start; padding:11px 0; border-bottom:1px dashed var(--line);}
+  .step:last-child{border-bottom:none;}
+  .num{flex:none; width:26px; height:26px; border-radius:50%; background:var(--brand); color:#fff;
+       font-size:13px; display:flex; align-items:center; justify-content:center; margin-top:3px;}
+  .step b{display:block; margin-bottom:2px;}
+  .step span{color:var(--sub); font-size:13.5px;}
+  .tag{display:inline-block; padding:2px 8px; border-radius:5px; font-size:12px; margin-right:6px;}
+  .t-ok{background:var(--ok-soft); color:var(--ok);}
+  .t-warn{background:var(--warn-soft); color:var(--warn);}
+  .t-risk{background:var(--danger-soft); color:var(--danger);}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr;}}
+  .kv{display:grid; grid-template-columns:130px 1fr; gap:6px 14px; font-size:14px;}
+  .kv div:nth-child(odd){color:var(--sub);}
+  .small{font-size:13px; color:var(--sub);}
+  footer{margin-top:50px; padding-top:20px; border-top:1px solid var(--line); color:var(--sub); font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>音乐转调小程序 · 技术可行性方案</h1>
+  <div class="meta">版本 v1.0 ｜ 2026-10-05 ｜ 目标：纯端侧（手机本地算力）完成音频转调，无需服务器</div>
+</header>
+
+<!-- ============ 一、结论 ============ -->
+<div class="verdict">
+  <h2>结论：可行，且可以做到 100% 本地算力</h2>
+  <p><b>不需要服务器、不需要上传音频、不需要 FFmpeg 后端。</b>微信小程序官方 API 已经打通了「选文件 → 解码出 PCM → 本地计算 → 编码 → 发回微信」的完整链路，我已逐条核对官方文档：</p>
+  <ul style="margin-top:10px;">
+    <li><code>wx.chooseMessageFile</code>（基础库 2.5.0+）：可从聊天记录选音频文件</li>
+    <li><code>WebAudioContext.decodeAudioData</code> + <code>AudioBuffer.getChannelData</code>（2.19.0+）：<b>官方明确返回 Float32Array 的 PCM 采样数据</b>——这是本地音频编辑的前提，已确认存在</li>
+    <li><code>WXWebAssembly</code>（2.13.0+，Worker 内 2.15.0+）：可用 C/C++ 编译的高性能音频算法（SoundTouch / 相位声码器 / LAME）</li>
+    <li><code>wx.createWorker</code>：把重计算放进子线程，界面不卡死，可显示进度</li>
+    <li><code>wx.shareFileMessage</code>（2.16.1+）：把转调后的文件发回微信聊天，用户长按即可保存到手机</li>
+  </ul>
+  <p><b>唯一需要动手做的工作量</b>：把开源音频算法（变调 + MP3 编码）用 Emscripten 编译成 <code>.wasm.br</code>，打包进小程序分包。这是成熟路径，不是研发风险。</p>
+</div>
+
+<div class="warn">
+  <b>需要提前知道的两个"硬边界"</b>（不影响可行性，但影响产品设计）：
+  <ol style="margin:6px 0 0;">
+    <li>小程序<b>不能直接读取手机本地文件夹</b>，只能从"微信聊天记录"里选文件。所以用户要先把歌发到「文件传输助手」，这一步必须在界面里用图示引导，否则中老年用户会卡住。</li>
+    <li>小程序<b>不能直接把文件存进手机存储</b>。成品只能"发回微信聊天"，用户再长按保存。这是微信的唯一出口，产品流程要按这个设计。</li>
+  </ol>
+</div>
+
+<!-- ============ 二、原理 ============ -->
+<h2>一、核心原理：什么是"转调"</h2>
+<p>用户要的是 <b>变调不变速</b>——音高变了，但歌曲时长和节奏保持不变（唱歌伴奏的基本需求）。</p>
+<div class="card">
+  <h3 style="margin-top:0;">❌ 不能直接改播放速度</h3>
+  <p>把播放速度调快（<code>playbackRate = 1.2</code>）确实会让音调升高，但歌曲也会变快 20%，人声和伴奏会"赶"，不能用于伴奏。</p>
+  <h3>✅ 正确做法：变调 = 重采样 + 时间伸缩（两步走）</h3>
+  <div class="kv" style="margin-top:8px;">
+    <div>第 1 步</div><div><b>重采样</b>：把采样率按比例拉伸/压缩 → 音高上升，但时长同步变短</div>
+    <div>第 2 步</div><div><b>时间伸缩</b>（Time-Stretch）：把时长拉回原来的长度，同时保持新音高不变</div>
+    <div>数学关系</div><div>升/降 <i>n</i> 个半音 = 频率比 <code>2^(n/12)</code>。例如 +2 半音 = ×1.1225（C → D）</div>
+  </div>
+</div>
+
+<h3>两种实现算法对比</h3>
+<table>
+  <tr><th style="width:150px;">算法</th><th>原理</th><th>音质</th><th>速度</th><th>适用</th></tr>
+  <tr>
+    <td><b>时域法 WSOLA</b><br><span class="small">（SoundTouch 采用）</span></td>
+    <td>把音频切成小片段，找波形最相似的片段重叠拼接</td>
+    <td>±1~3 半音很好；±4 以上复音音乐（完整歌曲）会有轻微"金属感/泡泡音"</td>
+    <td>快，约 20~50 倍实时速度</td>
+    <td><b>推荐作为主引擎</b>。伴奏转调大多在 ±4 半音内</td>
+  </tr>
+  <tr>
+    <td><b>频域法 相位声码器</b><br><span class="small">（STFT + 相位修正）</span></td>
+    <td>做短时傅里叶变换，在频域移动频谱再重建波形</td>
+    <td>明显更好，大幅变调也自然</td>
+    <td>慢 3~8 倍，计算量大</td>
+    <td>作为「高音质模式」可选开关，进阶再加</td>
+  </tr>
+  <tr>
+    <td>纯重采样</td>
+    <td>只做第 1 步</td>
+    <td>无损，但速度会变</td>
+    <td>极快</td>
+    <td>不适合本需求</td>
+  </tr>
+</table>
+<p class="small">结论：首版用 <b>SoundTouch（WASM）</b> 做主引擎，接口就是 <code>setPitchSemiTones(-12 ~ +12)</code>，正好是我们要的"半音"单位，开发量极小。</p>
+
+<!-- ============ 三、链路 ============ -->
+<h2>二、完整技术链路（全部在手机上完成）</h2>
+<div class="flow">
+  <div class="step"><div class="num">1</div><div><b>选文件</b> <code>wx.chooseMessageFile({type:'file', extension:['mp3','m4a','wav','flac','aac']})</code><span>→ 拿到本地临时路径 tempFilePath</span></div></div>
+  <div class="step"><div class="num">2</div><div><b>读成二进制</b> <code>FileSystemManager.readFile({filePath})</code><span>→ ArrayBuffer（音频原始字节）</span></div></div>
+  <div class="step"><div class="num">3</div><div><b>解码成 PCM</b> <code>audioCtx.decodeAudioData(arrayBuffer)</code> → <code>getChannelData(0/1)</code><span>→ Float32Array PCM，44100Hz。调用手机系统解码器，天然支持 mp3/m4a/wav/flac</span></div></div>
+  <div class="step"><div class="num">4</div><div><b>送进 Worker 线程</b> <code>worker.postMessage(pcm)</code><span>→ 主线程不卡，界面能转进度条</span></div></div>
+  <div class="step"><div class="num">5</div><div><b>WASM 变调</b> SoundTouch: <code>setPitchSemiTones(n)</code> → <code>putSamples()</code> → <code>receiveSamples()</code><span>→ 输出变调后的 PCM，时长与原来一致</span></div></div>
+  <div class="step"><div class="num">6</div><div><b>WASM 编码</b> LAME 编码器 → MP3 字节流<span>→ 约 128~192kbps，4 分钟约 4~6MB</span></div></div>
+  <div class="step"><div class="num">7</div><div><b>写入用户目录</b> <code>writeFile(wx.env.USER_DATA_PATH + '/歌曲名+2.mp3')</code><span>→ 用户文件区，配额 200MB</span></div></div>
+  <div class="step"><div class="num">8</div><div><b>交回用户</b> <code>wx.shareFileMessage({filePath})</code><span>→ 弹出微信好友列表，发给自己/文件传输助手 → 长按保存到手机</span></div></div>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">为什么必须用 WASM 而不是纯 JS</h3>
+  <p>4 分钟立体声 44.1kHz 音频 = 约 <b>2100 万个采样点</b>。变调要对每个点做插值 + 相关性搜索，纯 JS 在中低端安卓机上需要 <b>1~3 分钟</b>且会阻塞界面。同样算法编译成 WASM 后通常快 <b>5~15 倍</b>，可压到 <b>10~30 秒</b>，这是体验能否成立的分水岭。</p>
+  <p class="small">注意：小程序只支持 <code>WXWebAssembly.instantiate(包内路径)</code>，<b>不能从网络下载 wasm、不能动态编译</b>。所以要用 brotli 压缩（<code>.wasm.br</code>，体积可减 60~70%）放进代码包（建议放分包，主包 2MB 限制不受影响）。</p>
+</div>
+
+<!-- ============ 四、格式 ============ -->
+<h2>三、音频格式支持范围</h2>
+<p>解码用的是<b>手机系统自带解码器</b>（Android MediaCodec / iOS AudioToolbox），所以支持范围由系统决定，我们不用自己写解码器：</p>
+<table>
+  <tr><th style="width:110px;">格式</th><th style="width:90px;">iOS</th><th style="width:90px;">Android</th><th>说明</th></tr>
+  <tr><td>mp3</td><td><span class="tag t-ok">支持</span></td><td><span class="tag t-ok">支持</span></td><td>最常见，覆盖绝大多数用户文件</td></tr>
+  <tr><td>m4a / aac</td><td><span class="tag t-ok">支持</span></td><td><span class="tag t-ok">支持</span></td><td>苹果音乐、语音备忘录导出常见</td></tr>
+  <tr><td>wav</td><td><span class="tag t-ok">支持</span></td><td><span class="tag t-ok">支持</span></td><td>无损，但文件大</td></tr>
+  <tr><td>flac</td><td><span class="tag t-ok">iOS 11+ 支持</span></td><td><span class="tag t-warn">部分机型</span></td><td>无损，文件大，容易超过 25MB 选择上限</td></tr>
+  <tr><td>ogg / opus</td><td><span class="tag t-risk">不支持</span></td><td><span class="tag t-ok">支持</span></td><td>少见，可给出友好提示</td></tr>
+  <tr><td>wma / ape</td><td><span class="tag t-risk">不支持</span></td><td><span class="tag t-risk">不支持</span></td><td>⚠️ 戏曲/京剧伴奏资源站大量用 wma，目标用户高发（2026-10-05 实测确认）。代码已做文件头魔数嗅探，选中 wma 会明确提示"转成 mp3 再发到微信里就能转了"，不会只报泛泛的"格式打不开"</td></tr>
+  <tr><td>微信语音消息</td><td><span class="tag t-risk">不支持</span></td><td><span class="tag t-risk">不支持</span></td><td>silk/amr 格式，接口选不到，也不适合转调</td></tr>
+</table>
+<p><b>覆盖度判断：mp3 + m4a + wav 已覆盖 95% 以上真实场景。</b></p>
+<div class="warn">
+  <b>可选增强（建议二期做）：</b>若想做到"任何格式都能转"，可额外打包一个纯解码器 WASM（dr_libs / mpg123 + flac，约 300KB），统一在 WASM 里解码，彻底摆脱系统解码器差异，同时能支持 ogg。首版不必做。
+</div>
+
+<!-- ============ 五、性能 ============ -->
+<h2>四、性能与内存估算（决定体验是否可接受）</h2>
+<p>以最常见的 <b>4 分钟、44.1kHz、立体声</b> 歌曲为基准：</p>
+<table>
+  <tr><th style="width:180px;">项目</th><th>估算值</th><th>说明</th></tr>
+  <tr><td>解码耗时</td><td>1~3 秒</td><td>系统解码器，很快</td></tr>
+  <tr><td>PCM 内存占用</td><td>Float32：约 85MB<br>Int16：约 42MB</td><td><b>建议用 Int16（short）管线</b>，内存直接减半，音质损失可忽略</td></tr>
+  <tr><td>变调耗时（WASM）</td><td>中端机 8~20 秒<br>低端安卓 30~50 秒</td><td>峰值内存另需一份输出缓冲</td></tr>
+  <tr><td>MP3 编码耗时</td><td>5~15 秒</td><td>LAME WASM，128kbps</td></tr>
+  <tr><td><b>总耗时</b></td><td><b>约 20~45 秒</b></td><td>可接受，但必须有进度条和"请勿关闭"提示</td></tr>
+  <tr><td>峰值内存</td><td>约 120~180MB</td><td>iOS 上偏高，有被系统回收的风险</td></tr>
+</table>
+
+<h3>内存风险的对冲措施（都要做）</h3>
+<ul>
+  <li><b>时长上限</b>：首版限制 8 分钟以内，超出友好提示（覆盖 95% 歌曲）</li>
+  <li><b>Int16 管线</b>：SoundTouch 支持 short 采样，内存占用减半</li>
+  <li><b>及时释放</b>：解码得到的 AudioBuffer 处理完立刻置空，监听 <code>wx.onMemoryWarning</code> 做兜底清理</li>
+  <li><b>iOS 开启实验 Worker</b>：<code>wx.createWorker(path, {useExperimentalWorker: true})</code>，官方称 iOS 下 JS 运行效率提升数倍；配 <code>onProcessKilled</code> 自动重建</li>
+  <li><b>分段回传进度</b>：每处理 5% 回传一次进度，界面转圈不假死</li>
+</ul>
+
+<!-- ============ 六、广告 ============ -->
+<h2>五、广告解锁（变现）方案</h2>
+<div class="warn">
+  <b>本节已更新：计费规则改为「按音频时长阶梯」—— ≤3 分钟 1 个广告、≤6 分钟 2 个、&gt;6 分钟 3 个；支持付费直接跳过（0.1 元/分钟）；广告拉取失败自动放行。</b><br>
+  详细的规则表、状态机、支付合规与收益测算见配套文档《<b>付费与广告规则-音乐转调小程序.html</b>》。<br>
+  其中有一条<b>必须注意的硬约束</b>：卖"解锁权益"属于虚拟商品，自 2026-04-01 起<b>必须接入官方虚拟支付 <code>wx.requestVirtualPayment</code></b>，不能用普通微信支付；且 iOS 端走苹果 IAP，<b>最低价格点 ¥1</b>，因此"每次单独付 0.5 元"要改成"先买分钟额度包、再按分钟扣"（单价 0.1 元/分钟不变）。
+</div>
+<div class="card">
+  <h3 style="margin-top:0;">接口：<code>wx.createRewardedVideoAd({adUnitId})</code></h3>
+  <p>用户点"看视频免费转调" → 播放约 30 秒激励视频 → <code>onClose</code> 回调中判断 <code>isEnded === true</code> → 发放一次转调额度 → 开始处理。完全符合你的需求。</p>
+  <h3>三个必须先知道的现实问题</h3>
+  <ol>
+    <li><b>要开通流量主才有广告位</b>：微信小程序要求累计独立访客 <b>UV ≥ 1000</b> 才能申请。所以第一版必须先做成"免费无限用"，把广告开关做成配置项；等 UV 达标后后台打开开关即可变现，不用改代码逻辑。</li>
+    <li><b>审核期必须关掉广告</b>：微信审核时会扫描广告 API 调用。提交审核前把开关置为关闭，过审后再开，这是通行做法。</li>
+    <li><b>纯本地记录次数可被绕过</b>：如果用 <code>wx.setStorage</code> 记"还剩几次"，用户清缓存就重置了。若以后要做会员制，需接一个极轻量的云函数做次数校验（成本几乎为零）。</li>
+  </ol>
+</div>
+
+<div class="warn">
+  <b>强烈建议的产品设计：先试听，再解锁。</b><br>
+  中老年用户最怕"看完广告结果效果不对"。建议允许<b>免费试听转调后的前 15 秒</b>（本地处理 15 秒仅需 1~2 秒，几乎无成本），确认满意后再看广告解锁完整版导出。这会显著降低投诉和差评。
+</div>
+
+<!-- ============ 七、风险 ============ -->
+<h2>六、风险清单与应对</h2>
+<table>
+  <tr><th style="width:150px;">风险</th><th style="width:70px;">等级</th><th>应对措施</th></tr>
+  <tr>
+    <td>真机 <code>getChannelData</code> 行为与文档不一致</td>
+    <td><span class="tag t-warn">中</span></td>
+    <td>官方文档已写明返回 Float32Array，但必须在 M0 阶段用<b>真机</b>（iOS + 安卓各一台）跑通验证。若异常，降级方案：用 WASM 解码器自行解码文件（mp3/flac/wav），绕开系统 API</td>
+  </tr>
+  <tr>
+    <td>低端安卓机耗时过长（&gt;60 秒）用户以为卡死</td>
+    <td><span class="tag t-warn">中</span></td>
+    <td>进度条 + "正在处理，约需 30 秒，请勿退出"文案；超过阈值的机器自动降采样到 32kHz 处理</td>
+  </tr>
+  <tr>
+    <td>iOS 内存峰值导致小程序被系统回收</td>
+    <td><span class="tag t-warn">中</span></td>
+    <td>Int16 管线 + 8 分钟时长上限 + 内存警告监听 + 处理前提示"处理期间请不要切到后台"</td>
+  </tr>
+  <tr>
+    <td>音乐版权 / 小程序类目审核</td>
+    <td><span class="tag t-risk">高</span></td>
+    <td>见下方"合规"一节，这是最需要提前确认的一项</td>
+  </tr>
+  <tr>
+    <td>WASM 体积超出代码包限制</td>
+    <td><span class="tag t-ok">低</span></td>
+    <td>SoundTouch + LAME 编译后约 300~500KB，brotli 压缩后约 150~250KB，放分包即可，不构成问题</td>
+  </tr>
+  <tr>
+    <td>用户不会从聊天记录选文件</td>
+    <td><span class="tag t-warn">中</span></td>
+    <td>首页放 3 步图示引导（"先把歌发给自己 → 回到这里点选择 → 选刚才那条"），这是转化率关键</td>
+  </tr>
+</table>
+
+<!-- ============ 八、合规 ============ -->
+<h2>七、合规与审核（建议先确认再开发）</h2>
+<div class="risk">
+  <b>这是唯一可能让项目卡住的环节，建议你在开发前先找小程序服务商或同行确认：</b>
+  <ol style="margin:6px 0 0;">
+    <li><b>类目选择</b>：建议选「工具 → 效率」或「工具 → 图片/音视频处理」。<b>避开"音乐"类目</b>，音乐类目常要求《网络文化经营许可证》等资质。</li>
+    <li><b>版权定位</b>：产品必须定位为"本地音频编辑工具"——不提供曲库、不提供搜索下载、不存储用户音频、不上传服务器。设置页加一句声明：「本工具仅处理您本人拥有合法权利的音频文件，请尊重音乐版权」。</li>
+    <li><b>隐私指引</b>：在《小程序用户隐私保护指引》中声明"音频仅在本地设备处理，不会上传服务器"（这恰好是我们方案的卖点）。</li>
+    <li><b>主体资质</b>：个人主体与企业主体在流量主开通、类目可选范围上有差异，若打算变现，建议用企业/个体工商户主体。</li>
+    <li><b>付费必须走官方虚拟支付</b>（2026-04-01 起强制，详见《付费与广告规则》文档）：类目需含「工具」+ 完成认证与 ICP 备案 + 后台开通虚拟支付 + <b>单独打开"苹果支付"开关</b>；且必须有轻量服务端（推荐微信云开发）算签名与发货。注意：这只是"订单/余额"上云，<b>音频处理仍 100% 在本地</b>。</li>
+  </ol>
+</div>
+
+<!-- ============ 九、里程碑 ============ -->
+<h2>八、开发节奏（建议）</h2>
+<table>
+  <tr><th style="width:90px;">阶段</th><th style="width:180px;">内容</th><th>验收标准</th></tr>
+  <tr>
+    <td><b>M0<br>可行性验证</b></td>
+    <td>编译 SoundTouch → WASM；写最小 Demo 页面</td>
+    <td><b>真机上跑通</b>：选一个 mp3 → 解码 → 升 2 半音 → 编码 mp3 → 发回微信能正常播放、时长不变、音调确实升高。<b>同时实测耗时与内存</b>。这一关过了，后面就没有未知风险</td>
+  </tr>
+  <tr>
+    <td><b>M1<br>主流程</b></td>
+    <td>完整界面 + 转调主链路 + 试听</td>
+    <td>目标用户（中老年）无需指导能独立完成一次转调</td>
+  </tr>
+  <tr>
+    <td><b>M2<br>体验与兼容</b></td>
+    <td>多格式兼容、内存优化、耗时优化、错误提示、引导页</td>
+    <td>低端安卓机可完成；不支持格式有明确提示</td>
+  </tr>
+  <tr>
+    <td><b>M3<br>上线与变现</b></td>
+    <td>广告位接入（开关默认关）、提交审核、灰度</td>
+    <td>过审上线；UV 达 1000 后开启广告</td>
+  </tr>
+</table>
+
+<!-- ============ 十、决策点 ============ -->
+<h2>九、需要你拍板的 4 件事</h2>
+<div class="card">
+  <ol>
+    <li><b>算法许可</b>：SoundTouch 是 LGPL 协议（WASM 打包属于静态链接，商用需注意合规，作者也提供商业授权）。替代方案是自行实现相位声码器（工作量 +3~5 天，无许可问题）。你倾向哪个？</li>
+    <li><b>输出格式</b>：默认 <b>MP3</b>（文件小、微信里能直接播放，推荐）还是 WAV（无损但 4 分钟约 40MB）？</li>
+    <li><b>是否做"免费试听 15 秒"</b>：我强烈建议做，能显著降低看完广告却不满意的投诉。</li>
+    <li><b>时长上限</b>：建议 8 分钟。如果你要支持更长（如整首交响乐），需要额外做分块处理，工期增加。</li>
+  </ol>
+</div>
+
+<footer>
+  本文档基于微信小程序官方公开文档（2026-10 核对）与实际工程经验撰写。下一步：确认技术方案 → 确认界面原型 → 进入 M0 真机验证与正式开发。
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<view class="page-root" style="font-size:{{fontScale * 16}}px;">
+
+  <!-- 信息卡 -->
+  <view class="card">
+    <view class="row-line"><text class="k">音乐</text><text class="v">{{song.name}}</text></view>
+    <view class="row-line"><text class="k">时长</text><text class="v">{{durationText}}（算 {{billing.minutes}} 分钟）</text></view>
+    <view class="row-line"><text class="k">调整</text><text class="v">{{pitchLabel}}</text></view>
+  </view>
+
+  <!-- ============ 正式版：看视频 / 付费 二选一 ============ -->
+  <block wx:if="{{!entitlement.free}}">
+    <view class="opt {{selected === 'ad' ? 'sel' : ''}}" data-v="ad" bindtap="onPick">
+      <view class="opt-icon">📺</view>
+      <view>
+        <view class="opt-title">看视频，不花钱</view>
+        <view class="text-sub text-small">看 {{billing.adCount}} 个，约 {{adTimeText}}</view>
+      </view>
+      <view class="opt-price free">不花钱</view>
+    </view>
+
+    <view class="opt {{selected === 'pay' ? 'sel' : ''}}" data-v="pay" bindtap="onPick">
+      <view class="opt-icon">⚡</view>
+      <view>
+        <view class="opt-title">直接转，快</view>
+        <view class="text-sub text-small">扣 {{billing.minutes}} 分钟</view>
+      </view>
+      <view class="opt-price">¥{{billing.priceYuan}}</view>
+    </view>
+
+    <!-- 包月横幅：要 2 个以上视频时才显示 -->
+    <view class="month-card" wx:if="{{billing.showMonthlyHint}}" bindtap="onGoMonthly">
+      <view class="month-title">🎫 包月 ¥9.9，30 天随便转</view>
+      <view class="text-small" style="color:#3d7a5a;">不用看视频、不用算分钟数</view>
+    </view>
+
+    <button class="btn-primary" bindtap="onConfirm">{{confirmText}}</button>
+  </block>
+
+  <!-- ============ 内测模式：直接免费 ============ -->
+  <block wx:if="{{entitlement.free}}">
+    <view class="card beta-card">
+      <view class="beta-title">内测期间</view>
+      <view class="beta-text">全部免费 · 不用看视频 · 直接转</view>
+    </view>
+    <button class="btn-primary" bindtap="onStartFree">开始转调</button>
+  </block>
+
+</view>

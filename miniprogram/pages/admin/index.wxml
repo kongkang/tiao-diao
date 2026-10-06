@@ -1,0 +1,75 @@
+<view class="page-root" style="font-size:{{fontScale * 16}}px;">
+
+  <!-- 身份卡 -->
+  <view class="card">
+    <view class="card-title">当前身份</view>
+    <view class="row-line">
+      <text class="k">本地用户 ID</text>
+      <text class="v mono" data-v="{{user.userId}}" bindtap="onCopy">{{user.userId}}</text>
+    </view>
+    <view class="row-line">
+      <text class="k">openid</text>
+      <text class="v mono" wx:if="{{user.openid}}" data-v="{{user.openid}}" bindtap="onCopy">{{user.openid}}</text>
+      <text class="v text-sub" wx:else>未接入云服务</text>
+    </view>
+    <view class="row-line">
+      <text class="k">管理员</text>
+      <text class="v {{isAdmin ? 'ok' : ''}}">{{isAdmin ? (adminByWhitelist ? '是（白名单）' : '是（本地解锁）') : '否'}}</text>
+    </view>
+    <view class="row-line">
+      <text class="k">启动次数</text>
+      <text class="v">{{user.launchCount}} 次 · 首次 {{user.firstLaunchText}}</text>
+    </view>
+    <view class="text-sub text-small tip">
+      点 ID 可复制。接入云服务后：部署 login 云函数 → 把上面的 openid 填进
+      config.ADMIN_OPENIDS → CLOUD_LOGIN_ENABLED 改 true，即完成管理员识别。
+    </view>
+  </view>
+
+  <!-- 权益模拟（提前联调订阅/付费流程） -->
+  <view class="card">
+    <view class="card-title">权益模拟</view>
+    <view class="row-line">
+      <text class="k">当前权益</text>
+      <text class="v text-bold">{{entText}}</text>
+    </view>
+    <view class="sim-row">
+      <button class="sim-btn" bindtap="onSimFree">内测免费</button>
+      <button class="sim-btn" bindtap="onSimNormal">普通用户</button>
+      <button class="sim-btn" bindtap="onSimMinutes">30 分钟余额</button>
+      <button class="sim-btn" bindtap="onSimMonthly">包月用户</button>
+    </view>
+    <view class="text-sub text-small tip">
+      模拟后去走一遍「选歌 → 解锁 → 转调」，可提前验证订阅/余额流程。
+      支付正式开关（PAY_ENABLED）打开后此模拟自动失效，以服务器为准。
+    </view>
+  </view>
+
+  <!-- 转调历史 -->
+  <view class="card">
+    <view class="card-title">转调历史（{{historyList.length}} 条，只存在本机）</view>
+    <view wx:if="{{historyList.length === 0}}" class="text-sub">还没有转过歌</view>
+    <view class="his-item" wx:for="{{historyList}}" wx:key="ts">
+      <view class="his-main">
+        <view class="his-name">{{item.name}}</view>
+        <view class="text-sub text-small">{{item.pitchLabel}} · {{item.durationText}}</view>
+      </view>
+      <view class="text-sub text-small">{{item.timeText}}</view>
+    </view>
+    <button class="btn-gray" wx:if="{{historyList.length > 0}}" bindtap="onClearHistory">清空历史</button>
+  </view>
+
+  <!-- 开关状态 -->
+  <view class="card">
+    <view class="card-title">开关与版本</view>
+    <view class="row-line"><text class="k">广告开关 AD_ENABLED</text><text class="v">{{flags.AD_ENABLED ? '开' : '关'}}</text></view>
+    <view class="row-line"><text class="k">支付开关 PAY_ENABLED</text><text class="v">{{flags.PAY_ENABLED ? '开' : '关'}}</text></view>
+    <view class="row-line"><text class="k">云端登录 CLOUD_LOGIN</text><text class="v">{{flags.CLOUD_LOGIN_ENABLED ? '开' : '关'}}</text></view>
+    <view class="row-line"><text class="k">输出格式</text><text class="v">{{flags.ENCODE}}</text></view>
+    <view class="row-line"><text class="k">白名单人数</text><text class="v">{{flags.whitelistCount}}</text></view>
+    <view class="row-line"><text class="k">基础库版本</text><text class="v">{{sdkVersion}}</text></view>
+  </view>
+
+  <button class="btn-gray" bindtap="onLockAdmin">退出管理员模式</button>
+
+</view>

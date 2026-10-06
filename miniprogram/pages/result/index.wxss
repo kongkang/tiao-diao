@@ -1,0 +1,64 @@
+.done-card {
+  text-align: center;
+  padding: 60rpx 32rpx;
+}
+.done-icon { font-size: 110rpx; margin-bottom: 16rpx; }
+.done-title {
+  font-size: 1.35em;
+  font-weight: 700;
+  color: #07c160;
+  margin-bottom: 12rpx;
+}
+.done-name {
+  font-size: 0.95em;
+  color: #8a8f98;
+  margin-bottom: 36rpx;
+  word-break: break-all;
+}
+
+.player {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  background: #f7f7f7;
+  border-radius: 24rpx;
+  padding: 28rpx;
+}
+.play-btn {
+  flex: none;
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  background: #07c160;
+  color: #fff;
+  font-size: 1.1em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.track {
+  flex: 1;
+  height: 12rpx;
+  background: #e0e0e0;
+  border-radius: 6rpx;
+  overflow: hidden;
+  position: relative;
+}
+.track-fill {
+  height: 100%;
+  background: #07c160;
+  border-radius: 6rpx;
+}
+.time { font-size: 0.85em; color: #8a8f98; }
+
+.tip-box {
+  background: #f0faf4;
+  border: 2rpx solid #b7e2ca;
+  border-radius: 20rpx;
+  padding: 26rpx 32rpx;
+  margin-top: 24rpx;
+  font-size: 0.98em;
+  color: #1c5c3a;
+  line-height: 1.8;
+}
+.bold { font-weight: 700; }

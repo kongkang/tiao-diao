@@ -1,0 +1,38 @@
+<view class="page-root" style="font-size:{{fontScale * 16}}px;">
+
+  <!-- 余额提示（内测免费模式不显示） -->
+  <view class="top-warn" wx:if="{{entitlement && !entitlement.free}}">
+    <view>你还剩
+      <text class="bold">{{entitlement.monthly ? '包月畅用中' : entitlement.minutes + ' 分钟'}}</text>
+      {{needMinutes ? '，这首歌要 ' + needMinutes + ' 分钟' : ''}}
+    </view>
+  </view>
+
+  <!-- 商品列表 -->
+  <view class="pkg {{selected === p.id ? 'sel' : ''}}"
+        wx:for="{{products}}" wx:for-item="p" wx:key="id" data-id="{{p.id}}" bindtap="onPick">
+    <view>
+      <view class="pkg-name">{{p.name}}
+        <text class="pkg-hot" wx:if="{{p.monthly}}">不限量</text>
+        <text class="pkg-hot" wx:elif="{{p.id === 'pkg_30'}}">最划算</text>
+      </view>
+      <view class="pkg-desc">{{p.monthly ? '30 天随便转，不看视频' : '约 ' + (p.minutes / 5) + ' 首歌'}}</view>
+    </view>
+    <view class="pkg-price">¥{{p.price / 100}}</view>
+  </view>
+
+  <!-- 内测期不露出可点的购买按钮，避免误触支付 -->
+  <button wx:if="{{payEnabled}}" class="btn-primary" bindtap="onBuy">立即购买</button>
+  <button wx:else class="btn-gray" bindtap="onBetaTap">内测期间全免费</button>
+
+  <view class="text-sub text-small" style="text-align:center;margin-top:24rpx;line-height:1.9;">
+    1 分钟 = 0.1 元，用多少扣多少，不会过期\n
+    包月 30 天有效，下个月不会自动扣钱\n
+    所有手机价格都一样
+  </view>
+
+  <view class="beta-note" wx:if="{{!payEnabled}}">
+    内测期间：购买暂未开放，全部功能免费使用
+  </view>
+
+</view>
