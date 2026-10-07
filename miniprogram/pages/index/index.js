@@ -15,6 +15,7 @@ page({
     entitlement: null,
     historyList: [],
     isAdmin: false,
+    me: {}, // 登录资料（头像/称呼），空对象=未登录
   },
 
   onShow() {
@@ -23,13 +24,14 @@ page({
       .then(ent => this.setData({ entitlement: ent }))
       .catch(() => this.setData({ entitlement: { free: true } }))
 
-    // 转调历史（本地，最多显示最近 5 条；全量在管理页）
+    // 转调历史（本地，最多显示最近 5 条；全量在管理页/我的页）
     this.setData({
       historyList: history.list().slice(0, 5).map(r => Object.assign({}, r, {
         timeText: fmtDateTime(r.ts),
         pitchLabel: fmtPitchLabel(r.semitones),
       })),
       isAdmin: identity.isAdmin(),
+      me: identity.getProfile() || {},
     })
   },
 
@@ -67,5 +69,10 @@ page({
 
   onGoAdmin() {
     wx.navigateTo({ url: '/pages/admin/index' })
+  },
+
+  /** 左上角头像 → 我的页（登录/资料/权益/历史） */
+  onGoMe() {
+    wx.navigateTo({ url: '/pages/me/index' })
   },
 })

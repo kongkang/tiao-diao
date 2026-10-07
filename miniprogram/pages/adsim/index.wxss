@@ -1,0 +1,159 @@
+/* 演示广告页 —— 戏院暗幕风格：墨色幕布 + 旋转唱片 + 鎏金点缀 */
+.ad-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 40rpx 48rpx 60rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background:
+    radial-gradient(120% 60% at 50% 0%, #33291d 0%, rgba(51, 41, 29, 0) 60%),
+    linear-gradient(175deg, #1d1813 0%, #171310 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+/* ---- 演示角标（印章式） ---- */
+.demo-badge {
+  position: absolute;
+  top: 24rpx;
+  right: 28rpx;
+  background: #c8452c;
+  color: #fdf6ec;
+  font-size: 0.85em;
+  letter-spacing: 0.35em;
+  padding: 10rpx 18rpx 10rpx 26rpx;
+  border-radius: 10rpx;
+  transform: rotate(6deg);
+  box-shadow: 0 6rpx 16rpx rgba(200, 69, 44, 0.35);
+  z-index: 3;
+}
+
+/* ---- 舞台 ---- */
+.ad-stage {
+  margin-top: 60rpx;
+  width: 460rpx;
+  height: 460rpx;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.glow {
+  position: absolute;
+  width: 380rpx;
+  height: 380rpx;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(217, 164, 65, 0.28) 0%, rgba(217, 164, 65, 0) 70%);
+  animation: breathe 3s ease-in-out infinite;
+}
+.vinyl {
+  width: 330rpx;
+  height: 330rpx;
+  border-radius: 50%;
+  background:
+    repeating-radial-gradient(circle at 50% 50%, #211b15 0rpx, #2a221a 4rpx, #191410 8rpx);
+  border: 6rpx solid #0f0c09;
+  box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.6), inset 0 0 30rpx rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  animation: spin 6s linear infinite;
+}
+.vinyl.paused { animation-play-state: paused; }
+.vinyl-ring {
+  position: absolute;
+  width: 150rpx;
+  height: 150rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(217, 164, 65, 0.5);
+}
+.vinyl-label {
+  width: 110rpx;
+  height: 110rpx;
+  border-radius: 50%;
+  background: linear-gradient(150deg, #d9a441, #b3801f);
+  color: #2a1c08;
+  font-size: 1.6em;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 12rpx rgba(0, 0, 0, 0.25);
+}
+
+/* 漂浮音符 */
+.note {
+  position: absolute;
+  font-size: 44rpx;
+  opacity: 0;
+  animation: floatUp 3.2s ease-in-out infinite;
+}
+.note.n1 { left: 30rpx; top: 90rpx; animation-delay: 0s; }
+.note.n2 { right: 20rpx; top: 140rpx; animation-delay: 1.1s; }
+.note.n3 { left: 90rpx; bottom: 60rpx; animation-delay: 2.2s; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.12); opacity: 0.6; }
+}
+@keyframes floatUp {
+  0% { transform: translateY(0); opacity: 0; }
+  25% { opacity: 0.9; }
+  100% { transform: translateY(-120rpx); opacity: 0; }
+}
+
+/* ---- 倒计时 ---- */
+.count {
+  margin-top: 48rpx;
+  font-size: 1.25em;
+  color: #e8d9bd;
+  letter-spacing: 0.08em;
+}
+.count.done { color: #7fd6a4; }
+
+.bar {
+  width: 420rpx;
+  height: 10rpx;
+  border-radius: 6rpx;
+  background: rgba(255, 255, 255, 0.12);
+  margin-top: 22rpx;
+  overflow: hidden;
+}
+.bar-in {
+  height: 100%;
+  border-radius: 6rpx;
+  background: linear-gradient(90deg, #b3801f, #d9a441);
+  transition: width 1s linear;
+}
+
+/* ---- 按钮 ---- */
+.btn-reward {
+  margin-top: 56rpx;
+  width: 560rpx;
+  background: #07c160;
+  color: #fff;
+  border: none;
+  border-radius: 24rpx;
+  padding: 28rpx 0;
+  font-size: 1.15em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.btn-reward::after { border: none; }
+.button-hover.btn-reward { background: #06ad56; }
+
+.skip-row { margin-top: 56rpx; padding: 20rpx 40rpx; }
+.skip-text { color: rgba(232, 217, 189, 0.55); font-size: 0.95em; text-decoration: underline; }
+
+.ad-tip {
+  position: absolute;
+  bottom: 30rpx;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: rgba(232, 217, 189, 0.4);
+  font-size: 0.75em;
+}

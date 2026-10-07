@@ -54,9 +54,12 @@ page({
       // 写结果文件（文件名：【小程序名-升N半音】原名.后缀）
       const out = await fileSvc.writeResult(s.name, semitones, res.data, res.ext)
 
-      // 处理成功后再扣费（失败不扣）
-      const b = billing.calcBilling(s.durationSec)
-      await billing.consume(b.minutes).catch(() => { /* 扣费失败不阻塞交付 */ })
+      // 处理成功后再扣费（失败不扣）。
+      // 看广告解锁的已当场「支付」，不再扣分钟；包月/内测免费 consume 自然放行。
+      if (session.getUnlockMode() !== 'ad') {
+        const b = billing.calcBilling(s.durationSec)
+        await billing.consume(b.minutes).catch(() => { /* 扣费失败不阻塞交付 */ })
+      }
 
       // 记一笔转调历史（本地存储，上限 50 条）
       history.add({

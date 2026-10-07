@@ -10,6 +10,9 @@ let song = null
 // }
 let semitones = 0
 let lastResult = null // { path, fileName, name, semitones }
+// 本次处理的解锁方式：'ad' 看广告 | 'pay' 扣分钟 | 'monthly' 包月 | 'free' 内测免费
+// process 页据此决定扣费：广告已当场支付，不再扣分钟；其余走 billing.consume
+let unlockMode = 'free'
 
 module.exports = {
   setSong(s) { song = s; semitones = 0; lastResult = null },
@@ -18,6 +21,8 @@ module.exports = {
   getSemitones() { return semitones },
   setLastResult(r) { lastResult = r },
   getLastResult() { return lastResult },
+  setUnlockMode(m) { unlockMode = m || 'free' },
+  getUnlockMode() { return unlockMode },
 
-  clear() { song = null; semitones = 0 },
+  clear() { song = null; semitones = 0; unlockMode = 'free' },
 }

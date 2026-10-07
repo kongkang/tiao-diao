@@ -45,6 +45,25 @@
     </view>
   </view>
 
+  <!-- 广告演示模式：内测期联调「看广告解锁」全流程 -->
+  <view class="card">
+    <view class="card-title">广告演示模式</view>
+    <view class="row-line">
+      <text class="k">演示广告</text>
+      <text class="v {{adSim ? 'ok' : ''}}">{{adSim ? '已开启' : '未开启'}}</text>
+    </view>
+    <view class="sim-row">
+      <button class="sim-btn {{adSim ? 'sim-btn-on' : ''}}" bindtap="onToggleAdSim">
+        {{adSim ? '关闭演示' : '开启演示'}}
+      </button>
+    </view>
+    <view class="text-sub text-small tip">
+      开启后，模拟「普通用户」去解锁页选「看视频」，会播 5 秒演示广告：
+      看完发奖励、中途关可重看，与真实激励视频同状态机。
+      流量主开通（AD_ENABLED=true）后自动切真实广告。
+    </view>
+  </view>
+
   <!-- 转调历史 -->
   <view class="card">
     <view class="card-title">转调历史（{{historyList.length}} 条，只存在本机）</view>

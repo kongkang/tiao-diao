@@ -10,6 +10,14 @@
 
   <!-- 主入口 -->
   <view class="card hero">
+    <!-- 登录入口：主卡右上角，不单独占行（外层裁圆，真机 image border-radius 不稳） -->
+    <view class="me-entry" bindtap="onGoMe">
+      <view class="me-avatar">
+        <image wx:if="{{me.avatarUrl}}" class="me-avatar-img" src="{{me.avatarUrl}}" mode="aspectFill"/>
+        <view wx:else class="me-avatar-img me-ph">👤</view>
+      </view>
+      <text class="me-label">{{me.avatarUrl ? '我的' : '登录'}}</text>
+    </view>
     <view class="hero-icon" bindtap="onHeroTap">🎵</view>
     <view class="hero-text">把音乐升高或降低\n唱歌跟着不费劲</view>
     <button class="btn-primary" bindtap="onChoose">从微信选音乐</button>

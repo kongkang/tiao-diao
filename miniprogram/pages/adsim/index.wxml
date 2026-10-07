@@ -1,0 +1,32 @@
+<view class="ad-page" style="font-size:{{fontScale * 16}}px;">
+
+  <!-- 演示标识：一眼可辨，绝不冒充真实广告 -->
+  <view class="demo-badge">演 示</view>
+
+  <!-- 广告舞台：旋转唱片 + 漂浮音符 -->
+  <view class="ad-stage">
+    <view class="glow"></view>
+    <view class="vinyl {{ended ? 'paused' : ''}}">
+      <view class="vinyl-ring"></view>
+      <view class="vinyl-label">戏</view>
+    </view>
+    <view class="note n1">🎵</view>
+    <view class="note n2">🎶</view>
+    <view class="note n3">🎵</view>
+  </view>
+
+  <!-- 倒计时 / 完成 -->
+  <view class="count" wx:if="{{!ended}}">{{left}} 秒后可领奖励</view>
+  <view class="count done" wx:else>✔ 看完了</view>
+  <view class="bar">
+    <view class="bar-in" style="width:{{sec > 0 ? (sec - left) / sec * 100 : 100}}%;"></view>
+  </view>
+
+  <!-- 操作：看完领奖励 / 中途跳过 -->
+  <button class="btn-reward" wx:if="{{ended}}" bindtap="onReward">🎁 领奖励，继续转歌</button>
+  <view class="skip-row" wx:else bindtap="onSkip">
+    <text class="skip-text">跳过（不领奖励）</text>
+  </view>
+
+  <view class="ad-tip">第 {{idx}} / {{total}} 个 · 正式版这里播放赞助商视频</view>
+</view>

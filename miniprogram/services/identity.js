@@ -19,6 +19,7 @@ const KEY_USER_ID = 'td_user_id'
 const KEY_USER_META = 'td_user_meta'
 const KEY_OPENID = 'td_openid'
 const KEY_ADMIN_LOCAL = 'td_admin_local'
+const KEY_PROFILE = 'td_profile' // { avatarUrl, nickname, loggedAt }
 
 // 模块内缓存，getUser() 同步可用
 let cached = null
@@ -34,11 +35,13 @@ function load() {
   let meta = { firstLaunchAt: 0, lastLaunchAt: 0, launchCount: 0 }
   let openid = ''
   let adminLocal = false
+  let profile = null
   try {
     userId = wx.getStorageSync(KEY_USER_ID) || ''
     meta = wx.getStorageSync(KEY_USER_META) || meta
     openid = wx.getStorageSync(KEY_OPENID) || ''
     adminLocal = !!wx.getStorageSync(KEY_ADMIN_LOCAL)
+    profile = wx.getStorageSync(KEY_PROFILE) || null
   } catch (e) { /* 存储异常按新用户处理 */ }
 
   if (!userId) {
@@ -46,7 +49,7 @@ function load() {
     meta.firstLaunchAt = Date.now()
     try { wx.setStorageSync(KEY_USER_ID, userId) } catch (e) { /* */ }
   }
-  return { userId, meta, openid, adminLocal }
+  return { userId, meta, openid, adminLocal, profile }
 }
 
 /** 云端登录换 openid（CLOUD_LOGIN_ENABLED=true 时生效；失败静默，不影响本地功能） */
@@ -114,4 +117,56 @@ function lockAdminLocal() {
   try { wx.removeStorageSync(KEY_ADMIN_LOCAL) } catch (e) { /* */ }
 }
 
-module.exports = { init, getUser, isAdmin, unlockAdminLocal, lockAdminLocal }
+// ---- 登录资料（头像 + 昵称，微信官方「头像昵称填写能力」） ----
+// chooseAvatar 返回的是临时文件（当次会话有效），必须先落盘到用户目录才能跨启动使用。
+
+/** 当前登录资料：{ avatarUrl, nickname, loggedAt } 或 null（未登录） */
+function getProfile() {
+  ensureLoaded()
+  return cached.profile && cached.profile.loggedAt ? cached.profile : null
+}
+
+/** 把 chooseAvatar 给的临时头像落盘为持久文件（已是本地路径则原样返回） */
+function persistAvatar(tempPath) {
+  return new Promise((resolve, reject) => {
+    if (!tempPath) return reject(new Error('没有头像'))
+    if (tempPath.indexOf(wx.env.USER_DATA_PATH) === 0) return resolve(tempPath)
+    const fs = wx.getFileSystemManager()
+    fs.saveFile({
+      tempFilePath: tempPath,
+      success: r => resolve(r.savedFilePath),
+      fail: e => reject(new Error('保存头像失败：' + (e && e.errMsg || ''))),
+    })
+  })
+}
+
+/** 登录/更新资料：{ avatarTempPath?, nickname? }。至少有头像或昵称才算登录 */
+async function saveProfile(patch) {
+  ensureLoaded()
+  const cur = cached.profile || {}
+  let avatarUrl = cur.avatarUrl || ''
+  if (patch && patch.avatarTempPath) {
+    avatarUrl = await persistAvatar(patch.avatarTempPath).catch(() => cur.avatarUrl || patch.avatarTempPath)
+  }
+  const nickname = (patch && patch.nickname != null) ? String(patch.nickname).trim().slice(0, 12) : cur.nickname
+  const profile = {
+    avatarUrl,
+    nickname: nickname || '歌友',
+    loggedAt: cur.loggedAt || Date.now(),
+  }
+  cached.profile = profile
+  try { wx.setStorageSync(KEY_PROFILE, profile) } catch (e) { /* */ }
+  return profile
+}
+
+/** 退出登录（只清资料，不影响权益/历史） */
+function clearProfile() {
+  ensureLoaded()
+  cached.profile = null
+  try { wx.removeStorageSync(KEY_PROFILE) } catch (e) { /* */ }
+}
+
+module.exports = {
+  init, getUser, isAdmin, unlockAdminLocal, lockAdminLocal,
+  getProfile, saveProfile, clearProfile, persistAvatar,
+}

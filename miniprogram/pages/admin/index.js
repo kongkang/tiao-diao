@@ -8,6 +8,7 @@ const config = require('../../config.js')
 const identity = require('../../services/identity.js')
 const history = require('../../services/history.js')
 const billing = require('../../services/billing.js')
+const ad = require('../../services/ad.js')
 const { fmtPitchLabel, fmtDurationChinese, fmtDateTime } = require('../../utils/format.js')
 
 page({
@@ -19,6 +20,7 @@ page({
     historyList: [],
     flags: null,
     sdkVersion: '',
+    adSim: false,
   },
 
   onLoad() {
@@ -58,7 +60,15 @@ page({
         pitchLabel: fmtPitchLabel(r.semitones),
         durationText: fmtDurationChinese(r.durationSec),
       })),
+      adSim: ad.isSimEnabled(),
     })
+  },
+
+  // ---- 广告演示 ----
+  onToggleAdSim() {
+    const next = ad.setSimEnabled(!ad.isSimEnabled())
+    this.refresh()
+    wx.showToast({ title: next ? '演示广告已开启' : '演示广告已关闭', icon: 'none' })
   },
 
   onCopy(e) {

@@ -39,6 +39,12 @@
 }
 .sim-btn::after { border: none; }
 .button-hover.sim-btn { background: #f0faf4; }
+/* 开启态（广告演示）：实心绿，一眼可辨 */
+.sim-btn-on {
+  background: #07c160;
+  color: #fff;
+  flex-basis: 100%;
+}
 
 .his-item {
   display: flex;

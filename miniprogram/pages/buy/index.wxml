@@ -21,8 +21,8 @@
     <view class="pkg-price">¥{{p.price / 100}}</view>
   </view>
 
-  <!-- 内测期不露出可点的购买按钮，避免误触支付 -->
-  <button wx:if="{{payEnabled}}" class="btn-primary" bindtap="onBuy">立即购买</button>
+  <!-- 付费态（含内测模拟）：可购买；内测免费态：灰色防误触 -->
+  <button wx:if="{{canBuy}}" class="btn-primary" bindtap="onBuy">立即购买</button>
   <button wx:else class="btn-gray" bindtap="onBetaTap">内测期间全免费</button>
 
   <view class="text-sub text-small" style="text-align:center;margin-top:24rpx;line-height:1.9;">
@@ -31,7 +31,7 @@
     所有手机价格都一样
   </view>
 
-  <view class="beta-note" wx:if="{{!payEnabled}}">
+  <view class="beta-note" wx:if="{{!canBuy}}">
     内测期间：购买暂未开放，全部功能免费使用
   </view>
 

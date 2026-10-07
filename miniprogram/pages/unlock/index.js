@@ -2,7 +2,7 @@ const page = require('../../utils/page.js')
 const session = require('../../services/session.js')
 const billing = require('../../services/billing.js')
 const ad = require('../../services/ad.js')
-const { fmtDurationChinese } = require('../../utils/format.js')
+const { fmtDurationChinese, fmtPitchLabel } = require('../../utils/format.js')
 
 page({
   data: {
@@ -24,7 +24,6 @@ page({
     }
     const semitones = session.getSemitones()
     const b = billing.calcBilling(song.durationSec)
-    const ent = await billing.getEntitlement().catch(() => ({ free: true }))
 
     // ⚠️ 同上：setData 只放显示字段，PCM 大数据留在 session（真机白屏根因）
     this.setData({
@@ -32,11 +31,22 @@ page({
       durationText: fmtDurationChinese(song.durationSec),
       pitchLabel: fmtPitchLabel(semitones),
       billing: b,
-      entitlement: ent,
       adTimeText: b.adCount === 1 ? '30 秒' : (b.adCount === 2 ? '1 分钟' : '1 分半'),
     })
-    this.updateConfirmText()
 
+    await this.refreshEnt()
+  },
+
+  /** 权益实时刷新：从买分钟页返回时余额已变，onShow 必须重读 */
+  async onShow() {
+    if (!this.data.song) return // onLoad 早退（无歌）时不刷
+    await this.refreshEnt()
+  },
+
+  async refreshEnt() {
+    const ent = await billing.getEntitlement().catch(() => ({ free: true }))
+    this.setData({ entitlement: ent })
+    this.updateConfirmText()
     // 包月用户直接放行
     if (!ent.free && ent.monthly) this.setData({ selected: 'monthly' })
   },
@@ -60,13 +70,18 @@ page({
 
   /** 正式版确认：按所选方式解锁 */
   async onConfirm() {
-    const { selected, billing } = this.data
-    if (selected === 'monthly') return this.gotoProcess()
+    // ⚠️ 不要从 data 解构 billing —— 会遮蔽顶部 require 的 billing 模块
+    const selected = this.data.selected
+    const bill = this.data.billing
+    if (selected === 'monthly') {
+      session.setUnlockMode('monthly')
+      return this.gotoProcess()
+    }
 
     if (selected === 'ad') {
-      wx.showLoading({ title: '正在加载视频', mask: true })
-      const r = await ad.unlockByAd(billing.adCount)
-      wx.hideLoading()
+      // 注意：这里不能套 wx.showLoading —— 演示/真实广告都会整屏接管制，
+      // loading 遮罩会盖在广告页上面（真实广告 watchOne 内部自带超时兜底）
+      const r = await ad.unlockByAd(bill.adCount)
       if (!r.ok) {
         if (r.reason === 'skipped') {
           wx.showModal({
@@ -83,28 +98,41 @@ page({
       }
       if (r.free) {
         wx.showToast({ title: '今天没有视频，这次免费帮你转', icon: 'none', duration: 2000 })
+        session.setUnlockMode('free')
+      } else {
+        session.setUnlockMode('ad')
       }
       return this.gotoProcess()
     }
 
     if (selected === 'pay') {
-      const ent = this.data.entitlement
-      if (!ent.free && ent.minutes < billing.minutes) {
+      // 确认时重读权益（可能刚从买分钟页充值回来，或余额被并发扣减）
+      const ent = await billing.getEntitlement().catch(() => this.data.entitlement)
+      this.setData({ entitlement: ent })
+      if (ent.monthly) { // 期间刚买了包月：按包月放行
+        session.setUnlockMode('monthly')
+        return this.gotoProcess()
+      }
+      if (!ent.free && ent.minutes < bill.minutes) {
         wx.showModal({
           title: '分钟数不够了',
-          content: '你还剩 ' + ent.minutes + ' 分钟，这首歌要 ' + billing.minutes + ' 分钟',
+          content: '你还剩 ' + ent.minutes + ' 分钟，这首歌要 ' + bill.minutes + ' 分钟',
           confirmText: '去买分钟',
           cancelText: '算了',
           success: res => { if (res.confirm) this.onGoMonthly() },
         })
         return
       }
+      session.setUnlockMode('pay')
       return this.gotoProcess()
     }
   },
 
   /** 内测：直接开始 */
-  onStartFree() { this.gotoProcess() },
+  onStartFree() {
+    session.setUnlockMode('free')
+    this.gotoProcess()
+  },
 
   gotoProcess() {
     wx.navigateTo({ url: '/pages/process/index' })

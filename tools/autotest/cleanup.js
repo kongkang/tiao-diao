@@ -12,6 +12,12 @@ async function main() {
   const r = await mp.evaluate(() => {
     const session = require('services/session.js')
     session.clear()
+    ;['td_history', 'td_local_entitlement', 'td_admin_local', 'td_ad_sim', 'td_profile']
+      .forEach(k => wx.removeStorageSync(k))
+    wx.getStorageInfoSync().keys.forEach(k => {
+      if (k.indexOf('ad_fail_grant_') === 0) wx.removeStorageSync(k)
+    })
+    if (wx.__modalBackup) { wx.showModal = wx.__modalBackup; wx.__modalBackup = null }
     return { hasSong: !!session.getSong() }
   })
   console.log('session.clear():', JSON.stringify(r))

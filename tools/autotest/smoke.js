@@ -64,50 +64,24 @@ async function main() {
   await mp.reLaunch('/pages/index/index')
   await sleep(1000)
 
-  // 2.1 验证 evaluate 里能 require 服务模块（尝试不同路径形式）
+  // 2.1 验证 evaluate 里能 require 引擎模块（v3 接口：analyze/storeHas/preview/process/abort）
+  //     注：引擎端到端（合成 WAV → 变调 → 校验输出）由 full-process.js / test-e2e-audio.js 覆盖，
+  //     smoke 这里只验证模块可加载 + v3 接口面齐全。旧 v2 写法（engine.run + pcmL/pcmR 入参）已于 v3 废弃。
   const probe = await mp.evaluate(() => {
     const tries = ['services/engine.js', '/services/engine.js', './services/engine.js']
     for (const p of tries) {
       try {
         const engine = require(p)
-        if (engine && typeof engine.run === 'function') return { ok: true, path: p }
+        const need = ['analyze', 'storeHas', 'preview', 'process', 'abort']
+        const missing = need.filter(k => typeof engine[k] !== 'function')
+        if (!missing.length) return { ok: true, path: p, api: need }
+        return { ok: false, msg: 'missing api: ' + missing.join(','), path: p }
       } catch (e) { /* 继续试下一个 */ }
     }
-    // 兜底：从全局 webpack 模块表里找
-    try {
-      const keys = Object.keys(globalThis.__wxWebpackModules__ || {})
-      return { ok: false, msg: 'all paths failed', webpackKeys: keys.slice(0, 20) }
-    } catch (e) {
-      return { ok: false, msg: 'all paths failed' }
-    }
+    return { ok: false, msg: 'all paths failed' }
   })
   console.log('require engine:', JSON.stringify(probe))
-
-  if (probe.ok) {
-    // 2.2 注入 1 秒 440Hz 正弦波 → +2 半音 → WAV，验证输出
-    const result = await mp.evaluate((enginePath) => new Promise(resolve => {
-      const engine = require(enginePath)
-      const sr = 44100
-      const n = sr * 1
-      const pcmL = new Float32Array(n)
-      for (let i = 0; i < n; i++) pcmL[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
-      const pcmR = new Float32Array(pcmL)
-      engine.run({
-        semitones: 2, sampleRate: sr, channels: 2, length: n,
-        encode: 'wav', pcmL, pcmR,
-      }).then(res => resolve({
-        ok: true, ext: res.ext, bytes: res.data.byteLength,
-        durationSec: res.durationSec, elapsedMs: res.elapsedMs,
-      })).catch(e => resolve({ ok: false, msg: String(e.message || e) }))
-    }), probe.path)
-    console.log('变调结果:', JSON.stringify(result))
-    if (result.ok) {
-      const expectSec = 1.0
-      const durOk = Math.abs(result.durationSec - expectSec) < 0.15
-      const wavOk = result.ext === 'wav' && result.bytes > 44 + 44100 * 4 * 0.8
-      console.log(`校验: 时长 ${result.durationSec.toFixed(3)}s（期望≈${expectSec}）${durOk ? 'PASS' : 'FAIL'}；WAV 字节 ${result.bytes} ${wavOk ? 'PASS' : 'FAIL'}`)
-    }
-  }
+  console.log(`校验: 引擎模块加载+v3 接口面 ${probe.ok ? 'PASS' : 'FAIL'}`)
 
   // ---------- 汇总 ----------
   console.log('\n=== 汇总 ===')

@@ -86,4 +86,18 @@ function resetLocalEnt() {
   return readLocalEnt()
 }
 
-module.exports = { calcBilling, getEntitlement, consume, writeLocalEnt, resetLocalEnt, readLocalEnt }
+/** 本地充值（模拟支付到账）：分钟累加；包月在原到期日上顺延 30 天 */
+function topUpLocal(product) {
+  const ent = readLocalEnt()
+  const raw = (() => {
+    try { return wx.getStorageSync(ENT_KEY) || {} } catch (e) { return {} }
+  })()
+  if (product.monthly) {
+    const base = ent.monthly && raw.monthlyUntil && raw.monthlyUntil > Date.now() ? raw.monthlyUntil : Date.now()
+    const monthlyUntil = base + 30 * 86400000
+    return writeLocalEnt({ free: false, monthly: true, minutes: ent.minutes, monthlyUntil })
+  }
+  return writeLocalEnt({ free: false, monthly: false, minutes: ent.minutes + (product.minutes || 0) })
+}
+
+module.exports = { calcBilling, getEntitlement, consume, writeLocalEnt, resetLocalEnt, readLocalEnt, topUpLocal }

@@ -1,11 +1,13 @@
 {
   "pages": [
     "pages/index/index",
+    "pages/me/index",
     "pages/pitch/index",
     "pages/unlock/index",
     "pages/process/index",
     "pages/result/index",
     "pages/buy/index",
+    "pages/adsim/index",
     "pages/admin/index"
   ],
   "workers": "workers",

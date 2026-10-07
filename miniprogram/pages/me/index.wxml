@@ -1,0 +1,96 @@
+<view class="page-root me-root" style="font-size:{{fontScale * 16}}px;">
+
+  <!-- ============ 顶部：头像 + 称呼 ============ -->
+  <view class="me-head">
+
+    <!-- 未登录：点头像或绿按钮都能登录（微信官方「选头像」能力，一步完成）
+         外层 .avatar-wrap 裁圆（overflow:hidden），image 只负责铺满——真机直接给 image 打 border-radius 会变形。
+         定位上下文用 .avatar-box（普通 view）：button 自带 UA 样式会撑宽盒子，角标不能相对 button 定位 -->
+    <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+      <view class="avatar-box">
+        <view class="avatar-wrap">
+          <image wx:if="{{me}}" class="avatar-img" src="{{me.avatarUrl}}" mode="aspectFill"/>
+          <view wx:else class="avatar-img avatar-ph"><text class="avatar-face">👤</text></view>
+        </view>
+        <view class="avatar-cam">＋</view>
+      </view>
+    </button>
+
+    <!-- 称呼 -->
+    <view class="me-name" wx:if="{{me}}" bindtap="onEditName">{{me.nickname}} <text class="name-edit">✏️</text></view>
+    <block wx:else>
+      <view class="login-tip">用微信头像，一步登录</view>
+      <button class="login-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">微 信 登 录</button>
+    </block>
+
+    <!-- 改称呼（点名字展开） -->
+    <view class="nick-row" wx:if="{{editingName}}">
+      <input class="nick-input" type="nickname" placeholder="怎么称呼您"
+             value="{{nickname}}" bindinput="onNickInput" confirm-type="done" bindconfirm="onSaveName"/>
+      <button class="nick-save" bindtap="onSaveName">好</button>
+    </view>
+  </view>
+
+  <!-- ============ 权益卡（图形化，少文字） ============ -->
+  <view class="ent-card" bindtap="onTapEnt">
+    <!-- 内测免费 -->
+    <block wx:if="{{ent.free}}">
+      <view class="ent-icon gift">🎁</view>
+      <view class="ent-main">
+        <view class="ent-big">免费用</view>
+        <view class="ent-sub">内测期间，全部免费</view>
+      </view>
+    </block>
+    <!-- 包月 -->
+    <block wx:elif="{{ent.monthly}}">
+      <view class="ent-icon ticket">🎫</view>
+      <view class="ent-main">
+        <view class="ent-big green">{{ent.monthlyDaysLeft}}<text class="ent-unit"> 天</text></view>
+        <view class="ent-sub">包月中，随便转</view>
+        <view class="ent-bar"><view class="ent-bar-in monthly" style="width:{{ent.monthlyDaysLeft / 30 * 100}}%;"></view></view>
+      </view>
+    </block>
+    <!-- 分钟余额 -->
+    <block wx:else>
+      <view class="ent-icon clock">⏱</view>
+      <view class="ent-main">
+        <view class="ent-big amber">{{ent.minutes}}<text class="ent-unit"> 分钟</text></view>
+        <view class="ent-sub">{{ent.minutes > 0 ? '约还能转 ' + songsLeft + ' 首' : '分钟用完了'}}</view>
+      </view>
+    </block>
+    <view class="ent-go" wx:if="{{!ent.free}}">{{ent.monthly ? '续费' : '充值'}}</view>
+  </view>
+
+  <!-- ============ 转过的歌（图形化列表） ============ -->
+  <view class="card">
+    <view class="sec-title"><text class="sec-icon">🎵</text> 转过的歌</view>
+    <block wx:if="{{historyList.length > 0}}">
+      <view class="song-row" wx:for="{{historyList}}" wx:key="ts">
+        <view class="song-icon">♪</view>
+        <view class="song-main">
+          <view class="song-name">{{item.name}}</view>
+          <view class="song-pitch {{item.semitones > 0 ? 'up' : (item.semitones < 0 ? 'down' : '')}}">
+            {{item.pitchLabel}}
+          </view>
+        </view>
+        <view class="song-time">{{item.timeText}}</view>
+      </view>
+      <view class="his-foot" wx:if="{{historyTotal > historyList.length}}">等 {{historyTotal}} 条，只存在这台手机里</view>
+      <view class="his-foot" wx:else>只存在这台手机里</view>
+    </block>
+    <view wx:else class="empty-tip">
+      <view class="empty-icon">🎼</view>
+      <view class="empty-text">还没转过歌</view>
+    </view>
+  </view>
+
+  <!-- ============ 管理入口（仅管理员可见） ============ -->
+  <view class="admin-row" wx:if="{{isAdmin}}" bindtap="onGoAdmin">
+    <text class="admin-icon">🛠</text> 管理
+  </view>
+
+  <!-- ============ 退出登录 / 版本 ============ -->
+  <view class="logout" wx:if="{{me}}" bindtap="onLogout">退出登录</view>
+  <view class="ver">{{appName}} · 内测版</view>
+
+</view>

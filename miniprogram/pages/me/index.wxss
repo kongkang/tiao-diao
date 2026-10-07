@@ -1,0 +1,305 @@
+/* ============ 我的页 —— 暖纸 + 朱砂印章，极简少字 ============ */
+
+.me-root {
+  padding: 24rpx 24rpx 48rpx;
+}
+
+/* ---- 顶部头像卡 ---- */
+.me-head {
+  position: relative;
+  background: linear-gradient(165deg, #fbf5e8 0%, #f5ecd9 100%);
+  border-radius: 28rpx;
+  padding: 56rpx 32rpx 44rpx;
+  margin-bottom: 24rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+}
+/* 朱砂印章：右上角装饰，呼应戏曲票折 */
+.me-head::after {
+  content: '调';
+  position: absolute;
+  top: 26rpx;
+  right: 30rpx;
+  width: 64rpx;
+  height: 64rpx;
+  line-height: 64rpx;
+  text-align: center;
+  background: #c8452c;
+  color: #fdf6ec;
+  font-size: 1.05em;
+  font-weight: 700;
+  border-radius: 12rpx;
+  transform: rotate(8deg);
+  box-shadow: 0 6rpx 14rpx rgba(200, 69, 44, 0.28);
+}
+
+/* 头像按钮：视觉上就是一个头像，不是按钮。
+   注意：不给 button 设宽高/定位——button 有 UA 样式会撑宽盒子，
+   宽高与定位上下文全部交给内部普通 view（.avatar-box） */
+.avatar-btn {
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  border: none;
+  line-height: 1;
+  display: flex;
+  justify-content: center;
+}
+.avatar-btn::after { border: none; }
+/* 头像定位上下文：角标相对它定位，尺寸=头像尺寸 */
+.avatar-box {
+  position: relative;
+  width: 176rpx;
+  height: 176rpx;
+}
+/* 外层裁圆：真机直接给 image 打 border-radius + border 边框会变形/图片溢出，
+   稳妥做法=view 裁圆 + overflow:hidden + 图片铺满 */
+.avatar-wrap {
+  width: 176rpx;
+  height: 176rpx;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 8rpx solid #fff;
+  box-shadow: 0 10rpx 28rpx rgba(90, 66, 20, 0.18);
+  background: #ece4d2;
+  box-sizing: border-box;
+}
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.avatar-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ece4d2;
+}
+.avatar-face { font-size: 88rpx; line-height: 1; }
+/* 相机角标：改成清晰的「＋」，emoji 相机在小圆点上渲染不清 */
+.avatar-cam {
+  position: absolute;
+  right: 2rpx;
+  bottom: 2rpx;
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
+  background: #07c160;
+  color: #fff;
+  font-size: 36rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 4rpx solid #fbf5e8;
+  box-sizing: border-box;
+}
+
+.me-name {
+  margin-top: 28rpx;
+  font-size: 1.45em;
+  font-weight: 700;
+  color: #2b2620;
+}
+.name-edit { font-size: 0.7em; }
+.login-tip {
+  margin-top: 26rpx;
+  font-size: 1.05em;
+  color: #6b5d40;
+}
+/* 大号登录按钮：给老年人明确的点击目标（与头像二选一，都能登录） */
+.login-btn {
+  margin-top: 22rpx;
+  background: #07c160;
+  color: #fff;
+  border: none;
+  border-radius: 999rpx;
+  padding: 22rpx 88rpx;
+  font-size: 1.2em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.login-btn::after { border: none; }
+.button-hover.login-btn { background: #06ad56; }
+
+/* 改称呼输入 */
+.nick-row {
+  margin-top: 24rpx;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 40rpx;
+}
+.nick-input {
+  flex: 1;
+  background: #fff;
+  border-radius: 18rpx;
+  border: 3rpx solid #e3d8bf;
+  padding: 18rpx 26rpx;
+  font-size: 1em;
+  text-align: center;
+}
+.nick-save {
+  flex: none;
+  background: #07c160;
+  color: #fff;
+  border: none;
+  border-radius: 18rpx;
+  padding: 0 36rpx;
+  font-size: 1.05em;
+  line-height: 2.6;
+  margin: 0;
+}
+.nick-save::after { border: none; }
+
+/* ---- 权益卡：大图标 + 大数字 ---- */
+.ent-card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 34rpx 32rpx;
+  margin-bottom: 24rpx;
+  display: flex;
+  align-items: center;
+  gap: 26rpx;
+  box-shadow: 0 4rpx 16rpx rgba(90, 66, 20, 0.05);
+}
+.ent-icon {
+  flex: none;
+  width: 108rpx;
+  height: 108rpx;
+  border-radius: 28rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 60rpx;
+}
+.ent-icon.gift  { background: #fbeee9; }
+.ent-icon.ticket { background: #e8f8ee; }
+.ent-icon.clock { background: #fdf3e3; }
+
+.ent-main { flex: 1; min-width: 0; }
+.ent-big {
+  font-size: 1.9em;
+  font-weight: 800;
+  color: #2b2620;
+  line-height: 1.2;
+}
+.ent-big.green { color: #07c160; }
+.ent-big.amber { color: #e8890c; }
+.ent-unit { font-size: 0.55em; font-weight: 600; }
+.ent-sub { font-size: 0.9em; color: #9a917d; margin-top: 6rpx; }
+.ent-bar {
+  margin-top: 14rpx;
+  height: 12rpx;
+  border-radius: 8rpx;
+  background: #eef3ec;
+  overflow: hidden;
+}
+.ent-bar-in { height: 100%; border-radius: 8rpx; background: #07c160; }
+/* 右侧「充值/续费」胶囊：整卡可点，这个是给老年用户的明确可点标识 */
+.ent-go {
+  flex: none;
+  background: #07c160;
+  color: #fff;
+  font-size: 0.9em;
+  font-weight: 600;
+  border-radius: 999rpx;
+  padding: 14rpx 30rpx;
+}
+
+/* ---- 转过的歌 ---- */
+.sec-title {
+  font-size: 1.1em;
+  font-weight: 700;
+  margin-bottom: 12rpx;
+}
+.sec-icon { font-size: 1em; }
+
+.song-row {
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  padding: 20rpx 0;
+  border-bottom: 2rpx solid #f4f1ea;
+}
+.song-row:last-of-type { border-bottom: none; }
+.song-icon {
+  flex: none;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: #f0faf4;
+  color: #07c160;
+  font-size: 34rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.song-main { flex: 1; min-width: 0; }
+.song-name {
+  font-size: 1em;
+  color: #2b2620;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.song-pitch {
+  display: inline-block;
+  margin-top: 8rpx;
+  font-size: 0.8em;
+  color: #8a8f98;
+  background: #f4f4f4;
+  border-radius: 10rpx;
+  padding: 4rpx 16rpx;
+}
+.song-pitch.up   { color: #c8452c; background: #fbeee9; }
+.song-pitch.down { color: #2f6db8; background: #eaf2fb; }
+.song-time { flex: none; font-size: 0.8em; color: #b3ab97; }
+
+.his-foot {
+  text-align: center;
+  font-size: 0.82em;
+  color: #9a917d;
+  padding-top: 18rpx;
+}
+
+/* 空态 */
+.empty-tip {
+  text-align: center;
+  padding: 36rpx 0 20rpx;
+}
+.empty-icon { font-size: 76rpx; }
+.empty-text { color: #6b5d40; font-size: 1em; margin-top: 10rpx; }
+
+/* ---- 管理入口（仅管理员） ---- */
+.admin-row {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 30rpx 32rpx;
+  margin-bottom: 24rpx;
+  color: #5b6470;
+  font-size: 1em;
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+}
+.admin-icon { font-size: 1.1em; }
+
+/* ---- 退出 / 版本 ---- */
+.logout {
+  text-align: center;
+  color: #b3ab97;
+  font-size: 0.9em;
+  padding: 26rpx;
+  text-decoration: underline;
+}
+.ver {
+  text-align: center;
+  color: #cfc6b0;
+  font-size: 0.75em;
+  margin-top: 4rpx;
+}
