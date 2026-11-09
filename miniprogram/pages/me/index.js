@@ -24,13 +24,14 @@ page({
     appName: config.APP_NAME,
   },
 
-  onShow() {
+  async onShow() {
     const profile = identity.getProfile()
-    const ent = billing.readLocalEnt()
+    // 真实支付开启后权益以云端为准；云端不可达时 billing 会按 M0 兜底返回免费态
+    const ent = await billing.getEntitlement().catch(() => billing.readLocalEnt())
     this.setData({
       me: profile,
       ent,
-      songsLeft: Math.max(1, Math.round(ent.minutes / 5)),
+      songsLeft: Math.max(1, Math.round((ent.minutes || 0) / 5)),
       historyList: history.list().slice(0, HIS_SHOW).map(r => Object.assign({}, r, {
         timeText: fmtDateTime(r.ts),
         pitchLabel: fmtPitchLabel(r.semitones),

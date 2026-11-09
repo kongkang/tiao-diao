@@ -30,6 +30,18 @@ function safeBaseName(name) {
   return n || '音乐'
 }
 
+/** 基础库版本比较："3.17.2" vs "3.17.3" → -1/0/1，兼容四段（赞赏组件等按 SDKVersion 门控的能力用） */
+function compareVersion(v1, v2) {
+  const a = String(v1 || '').split('.').map(Number)
+  const b = String(v2 || '').split('.').map(Number)
+  const len = Math.max(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    const d = (a[i] || 0) - (b[i] || 0)
+    if (d !== 0) return d > 0 ? 1 : -1
+  }
+  return 0
+}
+
 /** 时间戳 → "10-06 21:30"（历史记录/管理页用） */
 function fmtDateTime(ts) {
   if (!ts) return ''
@@ -38,4 +50,4 @@ function fmtDateTime(ts) {
   return p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes())
 }
 
-module.exports = { fmtDurationChinese, fmtPitchLabel, fmtFenToYuan, safeBaseName, fmtDateTime }
+module.exports = { fmtDurationChinese, fmtPitchLabel, fmtFenToYuan, safeBaseName, fmtDateTime, compareVersion }

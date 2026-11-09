@@ -1,0 +1,12 @@
+# 支付密钥注入文件（部署时临时生成，绝不提交）
+cloudfunctions/createOrder/secrets.js
+cloudfunctions/queryOrder/secrets.js
+tools/pay-secrets.json
+
+# 本地工具产物
+.workbuddy/
+*.genie
+
+# 依赖与系统文件
+node_modules/
+.DS_Store

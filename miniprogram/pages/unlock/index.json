@@ -1,3 +1,6 @@
 {
-  "navigationBarTitleText": "怎么用"
+  "navigationBarTitleText": "怎么用",
+  "usingComponents": {
+    "reward-entry": "/components/reward-entry/index"
+  }
 }

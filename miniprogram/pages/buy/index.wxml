@@ -14,25 +14,68 @@
     <view>
       <view class="pkg-name">{{p.name}}
         <text class="pkg-hot" wx:if="{{p.monthly}}">不限量</text>
-        <text class="pkg-hot" wx:elif="{{p.id === 'pkg_30'}}">最划算</text>
+        <text class="pkg-hot" wx:elif="{{p.id === 'pkg_60'}}">最划算</text>
       </view>
       <view class="pkg-desc">{{p.monthly ? '30 天随便转，不看视频' : '约 ' + (p.minutes / 5) + ' 首歌'}}</view>
     </view>
     <view class="pkg-price">¥{{p.price / 100}}</view>
   </view>
 
-  <!-- 付费态（含内测模拟）：可购买；内测免费态：灰色防误触 -->
+  <!-- 付费态：可购买；支付服务未就绪/内测免费态：灰色防误触 -->
   <button wx:if="{{canBuy}}" class="btn-primary" bindtap="onBuy">立即购买</button>
-  <button wx:else class="btn-gray" bindtap="onBetaTap">内测期间全免费</button>
+  <button wx:else class="btn-gray" bindtap="onBetaTap">{{payEnabled ? '支付服务暂未就绪' : '内测期间全免费'}}</button>
 
   <view class="text-sub text-small" style="text-align:center;margin-top:24rpx;line-height:1.9;">
-    1 分钟 = 0.1 元，用多少扣多少，不会过期\n
+    60 分钟 1 元，用多少扣多少，不会过期\n
     包月 30 天有效，下个月不会自动扣钱\n
     所有手机价格都一样
   </view>
 
   <view class="beta-note" wx:if="{{!canBuy}}">
-    内测期间：购买暂未开放，全部功能免费使用
+    {{payEnabled ? '支付服务正在连接，请稍后再试；其他功能不受影响' : '内测期间：购买暂未开放，全部功能免费使用'}}
+  </view>
+
+  <!-- 支付等待：到账前一直显示，用户能看到“正在确认/正在更新” -->
+  <view class="pay-mask" wx:if="{{paying}}" catchtouchmove="noop">
+    <view class="pay-card">
+      <view class="pay-spinner"></view>
+      <view class="pay-title">{{payStatusTitle}}</view>
+      <view class="pay-sub">{{payStatusSub}}</view>
+      <view class="pay-dots">
+        <view class="dot d1"></view>
+        <view class="dot d2"></view>
+        <view class="dot d3"></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 到账成功庆祝：权益确认到账后才出现 -->
+  <view class="pay-mask success-mask" wx:if="{{paySuccess}}" catchtouchmove="noop">
+    <view class="confetti c1">🎉</view>
+    <view class="confetti c2">✨</view>
+    <view class="confetti c3">🎊</view>
+    <view class="confetti c4">✨</view>
+    <view class="confetti c5">🎉</view>
+    <view class="confetti c6">⭐</view>
+    <view class="success-card">
+      <view class="success-icon">🎉</view>
+      <view class="success-title">{{successTitle}}</view>
+      <view class="success-amount">{{successAmount}}</view>
+      <view class="success-sub">{{successSub}}</view>
+      <button class="success-btn" bindtap="onSuccessBack">返回下载</button>
+      <view class="success-again" bindtap="onSuccessClose">留在此页</view>
+    </view>
+  </view>
+
+  <!-- 支付已成功但权益延迟：给刷新入口，不让用户以为钱丢了 -->
+  <view class="pay-mask" wx:if="{{payPending}}" catchtouchmove="noop">
+    <view class="pay-card">
+      <view class="pending-icon">⏳</view>
+      <view class="pay-title">支付已成功</view>
+      <view class="pay-sub">{{pendingMessage}}</view>
+      <button class="pending-btn" bindtap="onPendingRefresh">刷新权益</button>
+      <view class="pending-again" bindtap="onSuccessBack">返回下载</view>
+    </view>
   </view>
 
 </view>

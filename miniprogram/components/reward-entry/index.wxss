@@ -1,0 +1,16 @@
+/* 赞赏入口：跟全局一致走 em 相对字号（适老化大字版联动）。
+   间距只放 hint 上 —— reward 未渲染时 hint 也是隐藏的，整块零占位。 */
+.reward-entry {
+  text-align: center;
+}
+
+.reward-hint {
+  margin-top: 56rpx;
+  font-size: 0.85em;
+  color: #8a8f98;
+}
+
+.reward-slot {
+  /* 官方组件自带内边距，这里只透传 */
+  display: block;
+}

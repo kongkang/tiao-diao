@@ -1,0 +1,85 @@
+{
+  "shots_dir": "../autotest/shots",
+  "tts_voice": "com.apple.voice.enhanced.zh_CN.Tingting",
+  "tts_rate": 145,
+  "scenes": [
+    {
+      "id": "s00-intro",
+      "type": "intro",
+      "narration": "这是音乐转调。伴奏太高太低，都能调。一共五步，手把手带你走一遍。",
+      "title": "音乐转调",
+      "sub": "把伴奏调高调低",
+      "small": "使用教程 · 一共五步"
+    },
+    {
+      "id": "s01-pick",
+      "type": "phone",
+      "img": "index-with-history.png",
+      "hl": [88, 245, 280, 310],
+      "hl_kind": "tap",
+      "chip": "第 1 步",
+      "title": "点「从微信选音乐」",
+      "sub": "在聊天记录里，点开你要转的歌",
+      "narration": "第一步，选歌。点绿色的从微信选音乐，在聊天记录里，点开你要转的那首歌。"
+    },
+    {
+      "id": "s02-pitch",
+      "type": "phone",
+      "img": "pitch-preview.png",
+      "hl": [26, 196, 340, 300],
+      "hl_kind": "tap",
+      "chip": "第 2 步",
+      "title": "加号升高 · 减号降低",
+      "narration": "第二步，调调。伴奏太低、唱不上去，就点加号。伴奏太高、够不着，就点减号。"
+    },
+    {
+      "id": "s03-preview",
+      "type": "phone",
+      "img": "pitch-preview.png",
+      "hl": [12, 440, 355, 568],
+      "hl_kind": "tap",
+      "chip": "第 3 步",
+      "title": "点 ▶ 试听 15 秒",
+      "narration": "第三步，试听。点播放键，每次听十五秒。觉得合适了，就点下一步。"
+    },
+    {
+      "id": "s04-start",
+      "type": "phone",
+      "img": "reward-free.png",
+      "hl": [88, 355, 280, 425],
+      "hl_kind": "tap",
+      "chip": "第 4 步",
+      "title": "点「开始转调」",
+      "sub": "内测全免费",
+      "narration": "第四步，开始转调。现在内测，全部免费。点绿色的开始转调。"
+    },
+    {
+      "id": "s05-wait",
+      "type": "mock-process",
+      "hl": [14, 92, 353, 300],
+      "hl_kind": "none",
+      "chip": "稍等一下",
+      "title": "等进度条走完",
+      "narration": "正在转调，一般几十秒。先别退出小程序。"
+    },
+    {
+      "id": "s06-send",
+      "type": "phone",
+      "img": "result.png",
+      "hl": [88, 418, 280, 472],
+      "hl_kind": "tap",
+      "chip": "第 5 步",
+      "title": "点「发回微信」",
+      "sub": "发到微信后，长按点「保存」",
+      "narration": "第五步，发回微信。先听听效果。满意了，点绿色的发回微信，发给自己。然后到微信里，长按这条音乐，点保存，就存到手机里了。"
+    },
+    {
+      "id": "s07-outro",
+      "type": "outro",
+      "narration": "总结一下：选歌、调调、试听、转调、发回微信。内测全免费，快去试试吧。",
+      "title": "就这么简单",
+      "steps": ["选歌", "调调", "试听", "转调", "发回微信"],
+      "small": "内测全免费 · 快去试试吧"
+    }
+  ]
+}

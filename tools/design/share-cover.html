@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- 分享卡片封面渲染源（1000×800，微信推荐 5:4）
+     风格：暖纸 #fbf5e8 + 朱砂印 #c8452c（同我的页印章，呼应戏曲票折）
+     一键重渲（在本目录执行）:
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --disable-gpu \
+       --screenshot=$HOME/Developer/tiao-diao/miniprogram/images/share-cover.png \
+       --window-size=1000,800 --hide-scrollbars --force-device-scale-factor=1 \
+       "file://$PWD/share-cover.html"
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; }
+  .card {
+    width: 1000px; height: 800px;
+    background: #fbf5e8;
+    position: relative; overflow: hidden;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Heiti SC", sans-serif;
+  }
+  /* 戏曲票折式细框（双层） */
+  .frame { position: absolute; inset: 26px; border: 3px solid rgba(200,69,44,.30); border-radius: 28px; }
+  .frame::after { content: ''; position: absolute; inset: 8px; border: 1px solid rgba(200,69,44,.18); border-radius: 20px; }
+  /* 远景音符水印，留白不抢字 */
+  .note-r { position: absolute; right: 30px; bottom: -64px; font-size: 300px; color: rgba(200,69,44,.08); line-height: 1; font-weight: 600; }
+  .note-l { position: absolute; left: 52px; top: -76px; font-size: 190px; color: rgba(43,38,32,.05); line-height: 1; font-weight: 600; }
+  .stack { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  /* 朱砂印章：同我的页 .me-head::after 画法 */
+  .seal {
+    width: 150px; height: 150px; border-radius: 30px;
+    background: #c8452c; color: #fdf6ec;
+    font-size: 84px; font-weight: 700; line-height: 150px; text-align: center;
+    transform: rotate(8deg);
+    box-shadow: 0 14px 30px rgba(200,69,44,.28);
+    margin-bottom: 58px;
+  }
+  h1 { margin: 0; font-size: 102px; font-weight: 700; color: #2b2620; letter-spacing: 6px; }
+  .sub { margin-top: 36px; font-size: 58px; font-weight: 600; color: #5c5142; letter-spacing: 4px; }
+  .sub .up { color: #c8452c; }
+  .sub .down { color: #1c5c3a; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="note-l">♪</div>
+  <div class="note-r">♪</div>
+  <div class="frame"></div>
+  <div class="stack">
+    <div class="seal">调</div>
+    <h1>免费伴奏调音高</h1>
+    <div class="sub"><span class="up">升调</span> / <span class="down">降调</span> 都支持</div>
+  </div>
+</div>
+</body>
+</html>

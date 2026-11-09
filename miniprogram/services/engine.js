@@ -111,7 +111,7 @@ function preview(opts) {
     token: opts.token,
     semitones: opts.semitones,
     encode: 'pcm',
-    slice: { from, to: from + Math.ceil((opts.maxSec || 15) * sr) },
+    slice: { from, to: from + Math.ceil((opts.maxSec || config.PREVIEW_SEC) * sr) },
   }, null, 120000)
 }
 

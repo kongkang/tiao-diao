@@ -43,17 +43,19 @@ page({
     this.refresh()
   },
 
-  refresh() {
+  async refresh() {
     const user = identity.getUser()
-    const ent = billing.readLocalEnt()
+    // 真实支付开启后以云端为准；云端不可达时 billing 会兜底
+    const ent = await billing.getEntitlement().catch(() => billing.readLocalEnt())
     this.setData({
       user: Object.assign({}, user, { firstLaunchText: fmtDateTime(user.firstLaunchAt) }),
       isAdmin: identity.isAdmin(),
       adminByWhitelist: !!user.openid &&
         (config.ADMIN_OPENIDS || []).indexOf(user.openid) > -1,
       entitlement: ent,
-      entText: ent.free ? '内测免费（默认）'
-        : ent.monthly ? '包月用户（模拟）· 还剩 ' + ent.monthlyDaysLeft + ' 天'
+      entText: ent.offline ? '云端不可达（M0 兜底免费）'
+        : ent.free ? '内测免费（默认）'
+        : ent.monthly ? '包月用户 · 还剩 ' + ent.monthlyDaysLeft + ' 天'
         : '普通用户 · 余额 ' + ent.minutes + ' 分钟',
       historyList: history.list().map(r => Object.assign({}, r, {
         timeText: fmtDateTime(r.ts),
@@ -77,23 +79,32 @@ page({
     wx.setClipboardData({ data: String(v) })
   },
 
-  // ---- 权益模拟 ----
+  // ---- 权益模拟（真实支付开启后以云端为准，模拟按钮不再生效） ----
+  guardSim() {
+    if (!config.PAY_ENABLED) return false
+    wx.showToast({ title: '真实支付已开启，模拟不生效', icon: 'none' })
+    return true
+  },
   onSimFree() {
+    if (this.guardSim()) return
     billing.resetLocalEnt()
     this.refresh()
     wx.showToast({ title: '已恢复内测免费', icon: 'none' })
   },
   onSimNormal() {
+    if (this.guardSim()) return
     billing.writeLocalEnt({ free: false, monthly: false, minutes: 0 })
     this.refresh()
     wx.showToast({ title: '已模拟普通用户', icon: 'none' })
   },
   onSimMinutes() {
+    if (this.guardSim()) return
     billing.writeLocalEnt({ free: false, monthly: false, minutes: 30 })
     this.refresh()
     wx.showToast({ title: '已模拟 30 分钟余额', icon: 'none' })
   },
   onSimMonthly() {
+    if (this.guardSim()) return
     billing.writeLocalEnt({
       free: false, monthly: true, minutes: 0,
       monthlyUntil: Date.now() + 30 * 86400000,
