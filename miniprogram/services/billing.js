@@ -55,7 +55,16 @@ async function getEntitlement() {
   if (!config.PAY_ENABLED) {
     return readLocalEnt()
   }
-  return cloud.call('getEntitlement')
+  try {
+    return await cloud.call('getEntitlement')
+  } catch (e) {
+    // 云开发还没部署/临时不可达：M0 阶段按内测免费放行，保证 App 可用
+    if (config.PAY_OFFLINE_FREE) {
+      console.warn('[billing] 云端权益不可用，按内测免费兜底', e.message)
+      return { free: true, monthly: false, minutes: 0, monthlyDaysLeft: 0, offline: true }
+    }
+    throw e
+  }
 }
 
 /** 扣减（处理成功后调用）。内测免费模式直接放行 */
@@ -71,7 +80,13 @@ async function consume(minutes) {
     // 余额不足：不扣，交给流程层处理（process 页扣费失败不阻塞交付）
     return { ok: false, reason: 'insufficient', minutes: ent.minutes }
   }
-  return cloud.call('consume', { minutes })
+  return cloud.call('consume', { minutes }).catch(e => {
+    if (config.PAY_OFFLINE_FREE) {
+      console.warn('[billing] 云端扣减不可用，按内测免费兜底', e.message)
+      return { ok: true, free: true, offline: true }
+    }
+    throw e
+  })
 }
 
 /** 写本地权益（管理页模拟用；PAY_ENABLED=true 时不生效） */

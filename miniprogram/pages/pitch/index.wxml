@@ -25,7 +25,7 @@
     </view>
   </view>
 
-  <!-- 播放器：进度条就是整首歌，拖到哪儿从哪儿听，每次播 15 秒 -->
+  <!-- 播放器：进度条就是整首歌，拖到哪儿从哪儿听，每次播 3 分钟 -->
   <view class="card player-card">
     <view class="player-status">{{statusText}}</view>
     <view class="player-row">
@@ -47,7 +47,7 @@
 
   <button class="btn-primary" bindtap="onNext">下一步</button>
   <view class="text-sub text-small" style="text-align:center;margin-top:20rpx;">
-    拖到哪儿就从哪儿听，每次播 15 秒；改调也会自动重唱
+    拖到哪儿就从哪儿听，每次播 3 分钟；改调也会自动重唱
   </view>
 
 </view>

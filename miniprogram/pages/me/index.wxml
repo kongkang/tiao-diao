@@ -38,7 +38,7 @@
       <view class="ent-icon gift">🎁</view>
       <view class="ent-main">
         <view class="ent-big">免费用</view>
-        <view class="ent-sub">内测期间，全部免费</view>
+        <view class="ent-sub">{{ent.offline ? '暂时连不上服务，先免费' : '内测期间，全部免费'}}</view>
       </view>
     </block>
     <!-- 包月 -->

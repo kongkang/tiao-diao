@@ -15,12 +15,17 @@ const RETRY_FREE_MS = 30 * 60 * 1000 // 与前端 config.RETRY_FREE_MINUTES 一�
 
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext()
-  const minutes = Math.max(1, Math.round(event.minutes || 0))
-  const songKey = event.songKey || ''
+  const minutes = Math.max(1, Math.round((event && event.minutes) || 0))
+  const songKey = (event && event.songKey) || ''
 
   const users = db.collection('users')
-  const { data } = await users.where({ _openid: OPENID }).limit(1).get()
-  const user = data[0]
+  let user = null
+  try {
+    const { data } = await users.where({ _openid: OPENID }).limit(1).get()
+    user = data[0] || null
+  } catch (e) {
+    if (!/not exist|不存在|COLLECTION_NOT_EXIST/i.test(String(e.message || ''))) throw e
+  }
   if (!user) return { ok: false, message: '余额不足，请先购买分钟' }
 
   const now = Date.now()
@@ -52,10 +57,19 @@ exports.main = async (event) => {
     return { ok: false, message: '余额不足，请先购买分钟' }
   }
 
-  // 记流水（对账用）
-  await db.collection('consume_logs').add({
-    data: { _openid: OPENID, minutes, songKey, at: db.serverDate() },
-  })
+  // 记流水（对账用；集合不存在时自动建）
+  try {
+    await db.collection('consume_logs').add({
+      data: { _openid: OPENID, minutes, songKey, at: db.serverDate() },
+    })
+  } catch (e) {
+    try {
+      await db.createCollection('consume_logs')
+      await db.collection('consume_logs').add({
+        data: { _openid: OPENID, minutes, songKey, at: db.serverDate() },
+      })
+    } catch (e2) { /* 流水失败不影响扣费结果 */ }
+  }
 
-  return { ok: true, minutes: (user.minutes || 0) - minutes }
+  return { ok: true, minutes: Math.max(0, (user.minutes || 0) - minutes) }
 }

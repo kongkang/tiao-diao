@@ -1,0 +1,6 @@
+<!-- 赞赏：官方 reward 组件自带「喜欢」按钮/人数/头像墙与全部交互，此处只做守卫和文案引导 -->
+<view class="reward-entry" wx:if="{{show}}">
+  <view class="reward-hint" wx:if="{{hint}}">用着顺手？点个「喜欢」支持作者</view>
+  <!-- reward-slot 不能自带 padding/高度：官方要求不可展示时整体零占位 -->
+  <view class="reward-slot"><reward theme="transparent" /></view>
+</view>

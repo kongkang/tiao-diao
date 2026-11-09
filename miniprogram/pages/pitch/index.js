@@ -21,7 +21,7 @@ page({
     pitchLabel: '升 2 个半音',
     // 播放器状态：idle 未在播 | processing 正在调 | playing 播放中 | paused 已暂停
     playState: 'idle',
-    statusText: '点 ▶ 先听 15 秒',
+    statusText: '点 ▶ 先听 3 分钟',
     previewStart: 0,       // 播放指针（秒，整首歌里的位置）
     playPercent: 0,
     playTimeText: '0:00',
@@ -48,7 +48,7 @@ page({
   /** 播放器状态 + 顶部一句人话提示，集中在这改 */
   setPlayState(state) {
     const map = {
-      idle: this._hasPreviewed ? '点 ▶ 接着听 15 秒' : '点 ▶ 先听 15 秒',
+      idle: this._hasPreviewed ? '点 ▶ 接着听 3 分钟' : '点 ▶ 先听 3 分钟',
       processing: '正在帮你调调…',
       playing: '正在听（' + this.data.pitchLabel + '）',
       paused: '暂停了，点 ▶ 接着听',
@@ -82,12 +82,12 @@ page({
     this._previewTimer = setTimeout(() => this.doPreviewSafe(), 800)
   },
 
-  /** 全局 loading + 倒计时：有实测耗时就按实测×1.5 估，首次用 10s 冗余时长（一般 5~6s） */
+  /** 全局 loading + 倒计时：有实测耗时就按实测×1.5 估，首次估 15s（3 分钟试听一般 10~25s） */
   startCountdown() {
     this.stopCountdown()
     let left = this._lastCostMs
-      ? Math.min(15, Math.max(3, Math.ceil((this._lastCostMs / 1000) * 1.5)))
-      : 10
+      ? Math.min(40, Math.max(3, Math.ceil((this._lastCostMs / 1000) * 1.5)))
+      : 15
     const show = () => wx.showLoading({
       title: left > 0 ? '正在帮你调调，稍等 ' + left + 's' : '马上就好',
       mask: false,
@@ -109,7 +109,7 @@ page({
     this.setData({ previewStart: v, playTimeText: fmtClock(v) })
   },
 
-  /** 松手落定：拖的是整首歌的进度条，从落点听 15 秒 */
+  /** 松手落定：拖的是整首歌的进度条，从落点听 3 分钟 */
   onSeek(e) {
     this._seeking = false
     const v = Number(e.detail.value) || 0
@@ -139,7 +139,7 @@ page({
       this.setPlayState('playing')
       return
     }
-    // idle → 从当前指针位置开始听 15 秒
+    // idle → 从当前指针位置开始听 3 分钟
     this._hasPreviewed = true
     this._previewSeq = (this._previewSeq || 0) + 1
     this._playStarted = false
@@ -155,7 +155,7 @@ page({
     this.doPreview()
   },
 
-  /** 试听本体：Worker 里从指针处切 15 秒变调后回放 */
+  /** 试听本体：Worker 里从指针处切 3 分钟变调后回放 */
   async doPreview() {
     const song = session.getSong()
     if (!song) return wx.reLaunch({ url: '/pages/index/index' })
@@ -168,27 +168,30 @@ page({
     const t0 = Date.now()
     try {
       const s = await audioSvc.ensureSong(song)
-      // 起点限制在 [0, duration - PREVIEW_SEC]（歌尾不足 15 秒就从能播满的位置起）
-      const start = Math.min(this.data.previewStart, Math.max(0, s.durationSec - config.PREVIEW_SEC))
+      // 从当前指针起播；最多听 PREVIEW_SEC 秒或到歌尾（短歌也能从拖到的位置听）
+      const start = Math.max(0, Math.min(this.data.previewStart, s.durationSec - 0.2))
+      const end = Math.min(start + config.PREVIEW_SEC, s.durationSec)
 
-      const res = await engine.preview({
+      this._playStartSec = start
+      this._playedSec = 0
+      this._playStarted = true
+      // 分片试听：每片 10 秒，边播边取，避免整段 PCM 把内存顶爆
+      const r = await audioSvc.playPreviewChunked({
         token: s.token,
         semitones: this.data.semitones,
         startSec: start,
-        maxSec: config.PREVIEW_SEC,
+        endSec: end,
         sampleRate: s.sampleRate,
         channels: s.channels,
+        onStart: () => {
+          if (seq !== this._previewSeq) return
+          this._lastCostMs = Date.now() - t0   // 第一片实测耗时，给下次倒计时当基数
+          this.stopCountdown()
+          this.setPlayState('playing')
+          this.startProgressTicker()
+        },
       })
-      this._lastCostMs = Date.now() - t0   // 实测耗时，给下次倒计时当基数
-      if (seq !== this._previewSeq) return // 等待期间用户又改了调/拖了条，结果直接丢弃
-
-      this._playStartSec = start                        // 本段在整首歌里的起点
-      this._playedSec = res.data.byteLength / 8 / s.sampleRate
-      this._playStarted = true
-      this.stopCountdown()
-      this.setPlayState('playing')
-      this.startProgressTicker()
-      await audioSvc.playInterleavedF32(res.data, s.sampleRate)
+      if (seq === this._previewSeq) this._playedSec = r.playedSec
     } catch (e) {
       const msg = e.message || ''
       if (msg.indexOf('正在处理中') !== -1) {
@@ -257,7 +260,8 @@ page({
     this.stopCountdown()
     this.stopProgressTicker()
     audioSvc.stopPreview()
-    if (this._busy) engine.abort()   // 正在等 Worker：终止请求，给全曲处理让路（常驻数据没了 ensureSong 会自动重解码，无感）
+    // 只有「正在等第一片」时才终止 Worker；播放中离开不必杀进程，否则下次要重解码
+    if (this._busy && this.data.playState === 'processing') engine.abort()
     if (this.data.playState !== 'idle') this.setPlayState('idle')
   },
 

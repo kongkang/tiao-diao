@@ -6,7 +6,7 @@
  *     wasm 堆体积有界（≈输入文件大小），PCM 累积到 JS 堆的 Int16 存储（体积减半）
  *   - 常驻：PCM 只存在 Worker 里（STORE），主线程只拿元数据 —— 大数组不再跨线程拷贝
  *     （不支持 transfer 的机型上一次拷贝就是一份全量 PCM，来回四趟是真机被杀的主因）
- *   - 处理：试听=切片变调回传交错 PCM（15s 小包）；全曲=变调+编码（mp3/wav）回传一个结果包
+ *   - 处理：试听=切片变调回传交错 PCM（180s）；全曲=变调+编码（mp3/wav）回传一个结果包
  *
  * 协议（与 services/engine.js 对应）：
  *   → {type:'analyze', data:ArrayBuffer, token}      解码文件并常驻
