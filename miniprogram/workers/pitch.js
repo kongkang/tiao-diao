@@ -1,171 +1,32 @@
 /**
- * Worker · 音频引擎 v3（PCM 常驻 + 统一 wasm 解码 + 变调 + 编码）
+ * Worker · 音频引擎 v4（流式处理：不再常驻整首 PCM）
  *
- * 架构（内存优先设计，真机 OOM 重构后）：
- *   - 解码：文件字节（几 MB）进来，FFmpeg WASM 拉取式解码（ff_open/ff_pull/ff_close），
- *     wasm 堆体积有界（≈输入文件大小），PCM 累积到 JS 堆的 Int16 存储（体积减半）
- *   - 常驻：PCM 只存在 Worker 里（STORE），主线程只拿元数据 —— 大数组不再跨线程拷贝
- *     （不支持 transfer 的机型上一次拷贝就是一份全量 PCM，来回四趟是真机被杀的主因）
- *   - 处理：试听=切片变调回传交错 PCM（180s）；全曲=变调+编码（mp3/wav）回传一个结果包
+ * 核心变化（长音频无时长限制）：
+ *   - 输入分块上传：主线程每次 4MB 读文件，Worker malloc 一整块 wasm 输入区后
+ *     逐块拷入（每块 ack）。主线程不再持有整文件 ArrayBuffer，避免 100MB 整包
+ *     postMessage 的克隆/兼容问题。
+ *   - 解码会话：ff_open 只探测元数据，不整首解码；SESSION 保存 {inPtr,inLen,rate,channels}。
+ *   - 试听：只在需要的位置解码 10 秒窗口（新 wasm 有 ff_seek/ff_tell 时精确跳转；
+ *     旧 wasm 退化为从当前位置顺序解码、远距离回退重开解码器）。
+ *   - 全曲：ff_pull 逐块拉 PCM → 流式重采样/WSOLA → Int16 → 单实例 lamejs →
+ *     128KB 一块回传主线程 appendFile。内存只与单块相关，与歌曲长度无关。
  *
  * 协议（与 services/engine.js 对应）：
- *   → {type:'analyze', data:ArrayBuffer, token}      解码文件并常驻
- *   ← {type:'analyzed', token, frames, sampleRate, channels}
- *   ← {type:'analyze_error', message}
- *   → {type:'pitch', token, semitones, encode, kbps, slice?}
- *     slice={from,to}（帧范围，试听用；省略=全曲）
- *   ← progress / done{result, ext, outLength, sampleRate} / error
- *   → {type:'store_has', token}  ← {type:'store_has_result', value}
+ *   → {type:'analyze_begin', token, totalBytes}      ← {type:'analyze_ready', token}
+ *   → {type:'analyze_chunk', token, offset, data}    ← {type:'analyze_chunk_ack', token, offset, bytes}
+ *   → {type:'analyze_end', token}                    ← {type:'analyzed', token, frames, sampleRate, channels, durationSec}
+ *   → {type:'store_has', token}                      ← {type:'store_has_result', value}
+ *   → {type:'preview', token, semitones, startSec, maxSec}
+ *                                                    ← {type:'done', result, ext:'pcm', outLength, sampleRate, channels:2}
+ *   → {type:'process', token, semitones, kbps}
+ *      ← meta / progress / chunk{data,bytes} / done / error
+ *      → {type:'ack', bytes}                         （主线程落盘后回执，背压）
  */
+
+const dsp = require('./libs/pitch-dsp.js')
 
 // ============ 工具 ============
 
-function f32ToI16(f32) {
-  const out = new Int16Array(f32.length)
-  for (let i = 0; i < f32.length; i++) {
-    let s = f32[i]
-    if (s > 1) s = 1
-    else if (s < -1) s = -1
-    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff
-  }
-  return out
-}
-
-function i16ToF32(i16) {
-  const out = new Float32Array(i16.length)
-  for (let i = 0; i < i16.length; i++) out[i] = i16[i] / 0x8000
-  return out
-}
-
-// ============ 变调算法（重采样 + WSOLA，验证过勿动本体） ============
-
-function resample(input, ratio) {
-  if (Math.abs(ratio - 1) < 1e-9) return input
-  const newLen = Math.max(1, Math.floor(input.length / ratio))
-  const out = new Float32Array(newLen)
-  for (let i = 0; i < newLen; i++) {
-    const src = i * ratio
-    const i0 = Math.floor(src)
-    const frac = src - i0
-    const a = input[i0]
-    const b = i0 + 1 < input.length ? input[i0 + 1] : a
-    out[i] = a + (b - a) * frac
-  }
-  return out
-}
-
-// 参数以毫秒定义，与 SoundTouch 默认一致：sequence 40ms / seekwindow 15ms / overlap 8ms
-function makeWsola(sampleRate) {
-  const SEQ = Math.round(sampleRate * 0.040)
-  const SEEK = Math.round(sampleRate * 0.015)
-  const OVL = Math.round(sampleRate * 0.008)
-
-  const win = new Float32Array(OVL)
-  for (let i = 0; i < OVL; i++) win[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (OVL - 1)))
-
-  /**
-   * 时间拉伸：factor = 输出时长/输入时长。
-   * 名义位置按 step=(SEQ-OVL)/factor 严格推进（偏移零均值不漂移，时长守得住）；
-   * 输出预分配 + 块重叠写入（真 overlap-add），峰值内存只有块数组方案的一半。
-   */
-  function stretch(input, factor) {
-    if (Math.abs(factor - 1) < 1e-9) return input
-    const est = Math.ceil(input.length * factor) + 2 * SEQ
-    const result = new Float32Array(est)
-    let w = 0
-
-    const first = input.subarray(0, Math.min(SEQ, input.length))
-    result.set(first, w)
-    w += first.length
-
-    let prevEnd = first
-    const tplStart = SEQ - OVL
-    const halfSeek = Math.floor(SEEK / 2)
-    const step = Math.max(1, Math.round((SEQ - OVL) / factor))
-    let nominal = 0
-    const blended = new Float32Array(SEQ)  // 复用缓冲（读 prevEnd 尾部在前，覆写在后，区域不重叠）
-
-    while (nominal + step + halfSeek + SEQ + OVL < input.length) {
-      nominal += step
-      const base = nominal - halfSeek
-      let bestOffset = 0
-      let bestCorr = -Infinity
-      for (let s = 0; s < SEEK; s++) {
-        let corr = 0
-        const b = base + s
-        for (let i = 0; i < OVL; i += 2) {
-          corr += prevEnd[tplStart + i] * input[b + i]
-        }
-        if (corr > bestCorr) { bestCorr = corr; bestOffset = s }
-      }
-
-      const block = input.subarray(base + bestOffset, base + bestOffset + SEQ)
-      for (let i = 0; i < OVL; i++) {
-        const wgt = win[i]
-        blended[i] = prevEnd[tplStart + i] * (1 - wgt) + block[i] * wgt
-      }
-      for (let i = OVL; i < SEQ; i++) blended[i] = block[i]
-
-      if (w + SEQ > result.length) break
-      result.set(blended, w)
-      w += SEQ - OVL
-      prevEnd = blended
-    }
-    return result.subarray(0, w)
-  }
-
-  return { stretch }
-}
-
-// ============ 编码 ============
-
-function wavFromI16(l16, r16, sampleRate) {
-  const frames = Math.min(l16.length, r16.length)
-  const dataBytes = frames * 4
-  const buf = new ArrayBuffer(44 + dataBytes)
-  const dv = new DataView(buf)
-  let p = 0
-  function str(s) { for (let i = 0; i < s.length; i++) dv.setUint8(p++, s.charCodeAt(i)) }
-  function u32(v) { dv.setUint32(p, v, true); p += 4 }
-  function u16(v) { dv.setUint16(p, v, true); p += 2 }
-  str('RIFF'); u32(36 + dataBytes); str('WAVE')
-  str('fmt '); u32(16); u16(1); u16(2)
-  u32(sampleRate); u32(sampleRate * 4); u16(4); u16(16)
-  str('data'); u32(dataBytes)
-  const out = new Int16Array(buf, 44)
-  for (let i = 0; i < frames; i++) {
-    out[i * 2] = l16[i]
-    out[i * 2 + 1] = r16[i]
-  }
-  return buf
-}
-
-function encodeMp3I16(l16, r16, sampleRate, kbps, onProgress) {
-  const lamejs = require('./libs/lamejs.js')
-  const enc = new lamejs.Mp3Encoder(2, sampleRate, kbps)
-  const blockSize = 1152 * 32   // 大块少循环，编码占比小
-  const out = []
-
-  const len = Math.min(l16.length, r16.length)
-  let done = 0
-  for (let i = 0; i < len; i += blockSize) {
-    const buf = enc.encodeBuffer(l16.subarray(i, Math.min(i + blockSize, len)), r16.subarray(i, Math.min(i + blockSize, len)))
-    if (buf.length > 0) out.push(new Uint8Array(buf))
-    done = i + blockSize
-    if (onProgress && (i / blockSize) % 8 === 0) onProgress(done / len)
-  }
-  const end = enc.flush()
-  if (end.length > 0) out.push(new Uint8Array(end))
-
-  let total = 0
-  for (const c of out) total += c.length
-  const mp3 = new Uint8Array(total)
-  let w = 0
-  for (const c of out) { mp3.set(c, w); w += c.length }
-  return mp3
-}
-
-// 立体声交错 Float32（试听回传用）
 function interleave(leftF32, rightF32) {
   const frames = Math.min(leftF32.length, rightF32.length)
   const out = new Float32Array(frames * 2)
@@ -242,6 +103,11 @@ const FF_ERR_MSG = {
   5: '这个音频格式版本不支持',
   6: '这个文件里没有解出内容',
   7: '出了点问题，再试一次',
+  8: '定位失败，再点一次试试',
+}
+
+function F(n) {
+  return ffExports[n] || ffExports['_' + n]
 }
 
 // 传输列表（transferList）在部分机型/实验 Worker 上不支持
@@ -255,185 +121,426 @@ function postOut(msg, transfer) {
   worker.postMessage(msg)
 }
 
-// ============ 常驻存储（单槽：当前这首歌，Int16 省一半内存） ============
+// ============ 解码会话（不存 PCM，只存压缩输入 + 打开的解码器） ============
 
-const STORE = {
+const SESSION = {
   token: null,
-  i16L: null,
-  i16R: null,     // 单声道时为 null
-  frames: 0,
-  sampleRate: 0,
+  inPtr: 0,
+  inLen: 0,
+  received: 0,
+  opened: false,
+  rate: 0,
   channels: 1,
+  durationSec: 0,
+  posFrames: 0,   // 本次 open/seek 之后已拉取的帧数（无 ff_tell 时用于估算位置）
 }
 
-function storeFree() {
-  STORE.token = null
-  STORE.i16L = null
-  STORE.i16R = null
-  STORE.frames = 0
+function sessionFree() {
+  if (!ffExports) {
+    SESSION.token = null
+    SESSION.inPtr = 0
+    SESSION.inLen = 0
+    SESSION.received = 0
+    SESSION.opened = false
+    return
+  }
+  if (SESSION.opened) {
+    try { F('ff_close')() } catch (e) { /* */ }
+  }
+  if (SESSION.inPtr) {
+    try { F('free')(SESSION.inPtr) } catch (e) { /* */ }
+  }
+  SESSION.token = null
+  SESSION.inPtr = 0
+  SESSION.inLen = 0
+  SESSION.received = 0
+  SESSION.opened = false
+  SESSION.rate = 0
+  SESSION.channels = 1
+  SESSION.durationSec = 0
+  SESSION.posFrames = 0
 }
 
-// ============ 解码：文件字节 → Int16 PCM 常驻 ============
+function sessionOpen() {
+  if (SESSION.opened) {
+    try { F('ff_close')() } catch (e) { /* */ }
+    SESSION.opened = false
+  }
+  if (F('ff_open')(SESSION.inPtr, SESSION.inLen) < 0) {
+    throw new Error(FF_ERR_MSG[F('ff_err')()] || '这个文件打不开')
+  }
+  SESSION.opened = true
+  SESSION.rate = F('ff_rate')() || SESSION.rate || 44100
+  SESSION.channels = Math.min(2, F('ff_channels')() || SESSION.channels || 1)
+  SESSION.durationSec = F('ff_duration_sec')() || SESSION.durationSec || 0
+  SESSION.posFrames = 0
+  return SESSION
+}
 
-async function doAnalyze(msg) {
-  const ff = await loadFf()
-  const F = (n) => ffExports[n] || ffExports['_' + n]
+function currentSec() {
+  if (F('ff_tell')) {
+    const t = F('ff_tell')()
+    if (t >= -0.5) return t
+  }
+  return SESSION.posFrames / (SESSION.rate || 44100)
+}
 
-  const bytes = new Uint8Array(msg.data)
-  const inPtr = F('malloc')(bytes.length)
-  let opened = false
-  let chunkPtr = 0
-  try {
-    new Uint8Array(ff.memory.buffer).set(bytes, inPtr)
-    if (F('ff_open')(inPtr, bytes.length) < 0) {
-      throw new Error(FF_ERR_MSG[F('ff_err')()] || '这个文件解不开')
+// ============ 输入分块上传 ============
+
+async function doAnalyzeBegin(msg) {
+  await loadFf()
+  sessionFree()
+
+  const total = msg.totalBytes | 0
+  if (total <= 0) throw new Error('文件是空的')
+  if (total > 120 * 1024 * 1024) throw new Error('文件超过 100MB，微信读不了')
+
+  const ptr = F('malloc')(total)
+  if (!ptr) throw new Error(FF_ERR_MSG[1])
+
+  SESSION.token = msg.token
+  SESSION.inPtr = ptr
+  SESSION.inLen = total
+  SESSION.received = 0
+  SESSION.opened = false
+  postOut({ type: 'analyze_ready', token: msg.token })
+}
+
+function doAnalyzeChunk(msg) {
+  if (!SESSION.token || msg.token !== SESSION.token) throw new Error('上传会话丢了，重新选一次')
+  const off = msg.offset | 0
+  const data = msg.data
+  const len = data ? data.byteLength : 0
+  if (off !== SESSION.received) throw new Error('上传顺序错了')
+  if (!len || off + len > SESSION.inLen) throw new Error('上传数据不完整')
+
+  const heap = new Uint8Array(ffExports.memory.buffer)
+  heap.set(new Uint8Array(data), SESSION.inPtr + off)
+  SESSION.received += len
+  postOut({ type: 'analyze_chunk_ack', token: msg.token, offset: off, bytes: len })
+}
+
+function doAnalyzeEnd(msg) {
+  if (!SESSION.token || msg.token !== SESSION.token) throw new Error('上传会话丢了，重新选一次')
+  if (SESSION.received !== SESSION.inLen) throw new Error('上传还没完成')
+
+  sessionOpen()
+
+  // 个别容器 codecpar 里没有采样率/声道，解一小段再重开
+  let rate = SESSION.rate
+  let channels = SESSION.channels
+  if (!rate || !channels) {
+    const probePtr = F('malloc')(65536 * 4)
+    if (!probePtr) throw new Error(FF_ERR_MSG[1])
+    try {
+      F('ff_pull')(probePtr, 65536)
+      rate = F('ff_rate')() || rate
+      channels = Math.min(2, F('ff_channels')() || channels)
+    } finally {
+      F('free')(probePtr)
     }
-    opened = true
+    SESSION.rate = rate
+    SESSION.channels = channels || 1
+    sessionOpen()   // 重置到 0，后面试听/处理从头开始
+  }
+  if (!SESSION.rate) throw new Error('读不出采样率，换一首试试')
+  if (!SESSION.channels) SESSION.channels = 1
 
-    const PULL_FLOATS = 65536   // 每次拉 65536 个交错样本（256KB）
-    chunkPtr = F('malloc')(PULL_FLOATS * 4)
+  const durationSec = SESSION.durationSec
+  const frames = durationSec > 0 ? Math.round(durationSec * SESSION.rate) : 0
+  postOut({
+    type: 'analyzed',
+    token: msg.token,
+    frames,
+    sampleRate: SESSION.rate,
+    channels: SESSION.channels,
+    durationSec,
+  })
+}
 
-    const rate = F('ff_rate')() || 44100
-    const ch = Math.min(2, F('ff_channels')() || 1)
-    const durSec = F('ff_duration_sec')()
+// ============ 试听：只解码窗口 ============
 
-    // 按容器声明时长预分配（×1.1 余量）；拿不到就按 2 分钟起步动态翻倍
-    let cap = durSec > 0 ? Math.ceil(durSec * rate * ch * 1.1) + rate : rate * ch * 120
-    let accL = new Int16Array(cap)
-    let accR = ch > 1 ? new Int16Array(cap) : null   // 右声道（交错转分声道）
-    let n = 0   // 已写入的帧数
+const PULL_FRAMES = 16384   // ≈0.37s@44.1k；ff_pull 的 float 缓冲上限 65536
 
-    for (;;) {
-      const got = F('ff_pull')(chunkPtr, PULL_FLOATS)
-      if (got <= 0) break
-      const frames = got / ch
-      if (n + frames > cap) {
-        // 预分配不足（容器时长低估）：倍增扩容
-        while (cap < n + frames) cap *= 2
-        const gL = new Int16Array(cap)
-        gL.set(accL.subarray(0, n))
-        accL = gL
-        if (ch > 1) {
-          const gR = new Int16Array(cap)
-          gR.set(accR.subarray(0, n))
-          accR = gR
-        }
-      }
-      // 拷出本块（memory 可能增长过，view 每次新建）
-      const chunk = new Float32Array(ff.memory.buffer, chunkPtr, got)
-      for (let i = 0; i < frames; i++) {
-        accL[n] = chunk[i * ch] > 1 ? 32767 : (chunk[i * ch] < -1 ? -32768 : Math.round(chunk[i * ch] * 32767))
-        if (ch > 1) {
-          const r = chunk[i * ch + 1]
-          accR[n] = r > 1 ? 32767 : (r < -1 ? -32768 : Math.round(r * 32767))
-        }
-        n++
+// 全曲处理复用的 L/R 缓冲（每块编码完即丢，不会留引用）
+let pullL = null
+let pullR = null
+
+/** 拉一块交错 PCM，返回分声道 float。位置优先用 ff_tell（新 wasm），否则按帧数推。 */
+function pullChunk(chunkPtr, framesWanted) {
+  const ch = SESSION.channels
+  const want = Math.max(1, Math.min(framesWanted, PULL_FRAMES))
+  const got = F('ff_pull')(chunkPtr, want * ch)
+  if (got < 0) throw new Error(FF_ERR_MSG[F('ff_err')()] || '解码中断了')
+  if (got === 0) return { n: 0, L: null, R: null, startSec: 0, endSec: 0 }
+  const n = got / ch
+  const view = new Float32Array(ffExports.memory.buffer, chunkPtr, got)
+  const L = new Float32Array(n)
+  const R = ch > 1 ? new Float32Array(n) : null
+  for (let i = 0; i < n; i++) {
+    L[i] = view[i * ch]
+    if (R) R[i] = view[i * ch + 1]
+  }
+  let endSec = (SESSION.posFrames + n) / SESSION.rate
+  if (F('ff_tell')) {
+    const t = F('ff_tell')()
+    if (t >= -0.5) endSec = t
+  }
+  SESSION.posFrames += n
+  return { n, L, R, startSec: endSec - n / SESSION.rate, endSec }
+}
+
+/** 从 targetSec 解出最多 maxSec 秒（末尾不足则少给）。 */
+function decodeWindow(chunkPtr, targetSec, maxSec) {
+  if (!SESSION.opened) sessionOpen()
+  const rate = SESSION.rate
+  const need = Math.max(1, Math.round(maxSec * rate))
+
+  let cur = currentSec()
+  // 目标在当前解码位置之前：重开（除非只差一点点，容忍 250ms）
+  if (cur > targetSec + 0.25) {
+    sessionOpen()
+    cur = 0
+  }
+  // 远距离向前：有 ff_seek/ff_tell 就跳，没有就顺序解码丢弃
+  if (targetSec - cur > 0.25) {
+    if (F('ff_seek') && F('ff_tell')) {
+      const to = Math.max(0, targetSec - 1.5)
+      if (F('ff_seek')(to) === 0) {
+        SESSION.posFrames = Math.round(to * rate)
+        cur = to
+      } else {
+        sessionOpen()
+        cur = 0
       }
     }
+  }
 
-    F('ff_close')()
-    opened = false
-    F('free')(chunkPtr); chunkPtr = 0
+  const outL = new Float32Array(need)
+  const outR = SESSION.channels > 1 ? new Float32Array(need) : null
+  let collected = 0
+  let skipUntil = targetSec
 
-    if (n === 0) throw new Error(FF_ERR_MSG[6])
+  for (;;) {
+    if (collected >= need) break
+    const remaining = need - collected
+    let want = remaining
+    if (collected === 0 && skipUntil > cur) {
+      // 先只拉到目标附近，避免越过窗口起点太多
+      want = Math.min(remaining, Math.max(1, Math.ceil((skipUntil - cur) * rate)))
+    }
+    const p = pullChunk(chunkPtr, want)
+    if (!p.n) break
 
-    STORE.token = msg.token
-    STORE.i16L = accL.subarray(0, n)
-    STORE.i16R = accR ? accR.subarray(0, n) : null
-    STORE.frames = n
-    STORE.sampleRate = rate
-    STORE.channels = ch
+    let offset = 0
+    if (collected === 0 && p.startSec < skipUntil) {
+      const skipFrames = Math.min(p.n, Math.max(0, Math.round((skipUntil - p.startSec) * rate)))
+      if (skipFrames >= p.n) {
+        cur = p.endSec
+        continue
+      }
+      offset = skipFrames
+    }
+    const take = Math.min(p.n - offset, remaining)
+    outL.set(p.L.subarray(offset, offset + take), collected)
+    if (outR) outR.set(p.R.subarray(offset, offset + take), collected)
+    collected += take
+    cur = p.startSec + (offset + take) / rate
+    if (take < p.n - offset) break   // 窗口已够（正常不会发生：want 已按 remaining 限制）
+  }
 
-    postOut({
-      type: 'analyzed',
-      token: msg.token,
-      frames: n,
-      sampleRate: rate,
-      channels: ch,
-    })
-  } catch (e) {
-    if (opened) { try { F('ff_close')() } catch (e2) { /* */ } }
-    if (chunkPtr) { try { F('free')(chunkPtr) } catch (e2) { /* */ } }
-    storeFree()
-    throw e
-  } finally {
-    // inPtr 的生命周期覆盖 open/pull（avio 要持续读它），这里才真正释放
-    try { F('free')(inPtr) } catch (e2) { /* */ }
+  return {
+    L: outL.subarray(0, collected),
+    R: outR ? outR.subarray(0, collected) : null,
+    frames: collected,
   }
 }
 
-// ============ 变调处理（全曲 or 试听切片） ============
-
-function doPitch(msg) {
-  if (STORE.token !== msg.token) {
+function doPreview(msg) {
+  if (!SESSION.token || msg.token !== SESSION.token || !SESSION.opened) {
     return postOut({ type: 'error', message: '这首歌的数据丢了，回到首页重新选一次' })
   }
   const t0 = Date.now()
-  const { sampleRate, channels } = STORE
+  const rate = SESSION.rate
+  const maxSec = Math.max(0.1, msg.maxSec || 10)
+  const targetSec = Math.max(0, msg.startSec || 0)
   const semitones = msg.semitones | 0
-  const encode = msg.encode || 'mp3'
-  const from = msg.slice ? Math.max(0, msg.slice.from | 0) : 0
-  const to = msg.slice ? Math.min(STORE.frames, msg.slice.to | 0) : STORE.frames
 
-  const ratio = Math.pow(2, semitones / 12)
-  const wsola = makeWsola(sampleRate)
-
-  postOut({ type: 'progress', percent: 2 })
-
-  // 分声道处理，float 中间量用完即弃（int16 常驻不动）
-  const srcL = i16ToF32(STORE.i16L.subarray(from, to))
-  let outL
-  if (semitones === 0) {
-    outL = srcL
-  } else {
-    const rsL = resample(srcL, ratio)
-    // srcL 无法置 null（const）—— WSOLA 期间多占一份 float，8 分钟歌约 85MB；
-    // M1 换 SoundTouch WASM 流式后消除
-    outL = wsola.stretch(rsL, ratio)
+  const chunkPtr = F('malloc')(PULL_FRAMES * 2 * 4)
+  if (!chunkPtr) throw new Error(FF_ERR_MSG[1])
+  let win
+  try {
+    win = decodeWindow(chunkPtr, targetSec, maxSec)
+  } finally {
+    F('free')(chunkPtr)
   }
-  postOut({ type: 'progress', percent: 45 })
+  if (!win.frames) throw new Error('这个位置没有声音了')
 
-  let l16 = null
-  if (encode !== 'pcm') { l16 = f32ToI16(outL); outL = null }   // 尽早降位深腾内存
-
-  let outR = null
-  if (channels > 1) {
-    const srcR = i16ToF32(STORE.i16R.subarray(from, to))
-    outR = semitones === 0 ? srcR : wsola.stretch(resample(srcR, ratio), ratio)
+  let outL = win.L
+  let outR = win.R || win.L
+  if (semitones !== 0) {
+    const ratio = Math.pow(2, semitones / 12)
+    const ws = dsp.makeWsola(rate)
+    outL = ws.stretch(dsp.resample(win.L, ratio), ratio)
+    outR = win.R ? ws.stretch(dsp.resample(win.R, ratio), ratio) : outL
   }
-  postOut({ type: 'progress', percent: 70 })
 
-  let resultBuffer = null
-  let ext = 'pcm'
-  if (encode === 'pcm') {
-    resultBuffer = interleave(outL, outR || outL).buffer
-    ext = 'pcm'
-  } else {
-    const r16 = outR ? f32ToI16(outR) : l16
-    outR = null
-    postOut({ type: 'progress', percent: 75 })
-    if (encode === 'wav') {
-      resultBuffer = wavFromI16(l16, r16, sampleRate)
-      ext = 'wav'
-    } else {
-      resultBuffer = encodeMp3I16(l16, r16, sampleRate, msg.kbps || 160, (p) => {
-        postOut({ type: 'progress', percent: 75 + Math.min(20, Math.round(p * 20)) })
-      }).buffer
-      ext = 'mp3'
-    }
-  }
-  postOut({ type: 'progress', percent: 96 })
-
+  const resultBuffer = interleave(outL, outR).buffer
   postOut({
     type: 'done',
     result: resultBuffer,
-    ext: ext,
-    outLength: encode === 'pcm' ? resultBuffer.byteLength / 8 : l16.length,
-    sampleRate,
+    ext: 'pcm',
+    outLength: outL.length,
+    sampleRate: rate,
     channels: 2,
     semitones,
     elapsedMs: Date.now() - t0,
   }, [resultBuffer])
+}
+
+// ============ 全曲流式处理 ============
+
+const ACK_WINDOW_BYTES = 4 * 1024 * 1024
+let outstandingBytes = 0
+let ackWaiters = []
+
+function onAck(msg) {
+  outstandingBytes = Math.max(0, outstandingBytes - (msg.bytes | 0))
+  if (ackWaiters.length && outstandingBytes <= ACK_WINDOW_BYTES) {
+    const ws = ackWaiters; ackWaiters = []
+    for (let i = 0; i < ws.length; i++) ws[i]()
+  }
+}
+
+function waitAck() {
+  if (outstandingBytes <= ACK_WINDOW_BYTES) return Promise.resolve()
+  return new Promise(resolve => ackWaiters.push(resolve))
+}
+
+function sleep0() {
+  return new Promise(resolve => setTimeout(resolve, 0))
+}
+
+async function doProcess(msg) {
+  if (!SESSION.token || msg.token !== SESSION.token) {
+    throw new Error('这首歌的数据丢了，回到首页重新选一次')
+  }
+  if (msg.encode && msg.encode !== 'mp3') {
+    throw new Error('长音频只支持 mp3 输出')
+  }
+  const t0 = Date.now()
+  sessionOpen()
+  const rate = SESSION.rate
+  const ch = SESSION.channels
+  const mono = ch < 2
+  const semitones = msg.semitones | 0
+  if (dsp.MP3_RATES.indexOf(rate) < 0) {
+    throw new Error('这个采样率暂时不支持，换一首试试')
+  }
+  const kbps = dsp.clampKbps(rate, msg.kbps || 160)
+  const totalFrames = SESSION.durationSec > 0 ? Math.round(SESSION.durationSec * rate) : 0
+  outstandingBytes = 0
+  ackWaiters = []
+
+  postOut({
+    type: 'meta',
+    durationSec: SESSION.durationSec,
+    sampleRate: rate,
+    channels: ch,
+    kbps,
+    totalFrames,
+  })
+
+  const chunkPtr = F('malloc')(PULL_FRAMES * 2 * 4)
+  if (!chunkPtr) throw new Error(FF_ERR_MSG[1])
+
+  let pulled = 0
+  let outFrames = 0
+  let lastPercent = -1
+  let block = 0
+  let mp3 = null
+  let pitch = null
+
+  function emitChunk(u8) {
+    const buf = u8.buffer
+    outstandingBytes += u8.byteLength
+    postOut({ type: 'chunk', data: buf, bytes: u8.byteLength }, [buf])
+  }
+
+  try {
+    // 输出保持旧的立体声行为（单声道源也编成双声道），不改变短歌成品格式
+    mp3 = dsp.createMp3Stream(rate, kbps, 2)
+    pitch = dsp.createPitchStream(rate, semitones, ch)
+    if (!pullL) {
+      pullL = new Float32Array(PULL_FRAMES)
+      pullR = new Float32Array(PULL_FRAMES)
+    }
+
+    for (;;) {
+      const got = F('ff_pull')(chunkPtr, PULL_FRAMES * ch)
+      if (got < 0) throw new Error(FF_ERR_MSG[F('ff_err')()] || '解码中断了')
+      if (got === 0) break
+      const frames = got / ch
+      pulled += frames
+
+      const view = new Float32Array(ffExports.memory.buffer, chunkPtr, got)
+      for (let i = 0; i < frames; i++) {
+        pullL[i] = view[i * ch]
+        if (!mono) pullR[i] = view[i * ch + 1]
+      }
+      const L = frames === PULL_FRAMES ? pullL : pullL.subarray(0, frames)
+      const R = mono ? null : (frames === PULL_FRAMES ? pullR : pullR.subarray(0, frames))
+
+      const out = pitch.push(L, R)
+      if (out.L.length) {
+        const l16 = dsp.f32ToI16(out.L)
+        const r16 = mono ? l16 : dsp.f32ToI16(out.R)
+        outFrames += l16.length
+        mp3.push(l16, r16, emitChunk)
+      }
+
+      const percent = totalFrames > 0
+        ? Math.min(99, Math.floor((pulled / totalFrames) * 100))
+        : -1
+      if (percent !== lastPercent) {
+        lastPercent = percent
+        postOut({ type: 'progress', percent, frames: pulled, totalFrames })
+      }
+
+      block++
+      if (block % 8 === 0) await sleep0()
+      if (outstandingBytes > ACK_WINDOW_BYTES) await waitAck()
+    }
+
+    const tail = pitch.flush()
+    if (tail.L.length) {
+      const l16 = dsp.f32ToI16(tail.L)
+      const r16 = mono ? l16 : dsp.f32ToI16(tail.R)
+      outFrames += l16.length
+      mp3.push(l16, r16, emitChunk)
+    }
+    mp3.flush(emitChunk)
+
+    postOut({
+      type: 'progress',
+      percent: 100,
+      frames: pulled,
+      totalFrames: totalFrames || pulled,
+    })
+    postOut({
+      type: 'done',
+      outLength: outFrames,
+      sampleRate: rate,
+      channels: 2,
+      ext: 'mp3',
+      kbps,
+      bytes: mp3.bytes,
+      durationSec: outFrames / rate,
+      elapsedMs: Date.now() - t0,
+    })
+  } finally {
+    try { F('free')(chunkPtr) } catch (e) { /* */ }
+  }
 }
 
 // ============ 消息入口 ============
@@ -441,23 +548,58 @@ function doPitch(msg) {
 worker.onMessage(function (msg) {
   if (msg.type === 'ping') return postOut({ type: 'pong' })
 
-  if (msg.type === 'store_has') {
-    return postOut({ type: 'store_has_result', value: STORE.token === msg.token && STORE.frames > 0 })
+  if (msg.type === 'ack') {
+    onAck(msg)
+    return
   }
 
-  if (msg.type === 'analyze') {
-    doAnalyze(msg).catch((err) => {
+  if (msg.type === 'store_has') {
+    return postOut({
+      type: 'store_has_result',
+      value: !!SESSION.token && SESSION.token === msg.token && SESSION.opened,
+    })
+  }
+
+  if (msg.type === 'analyze_begin') {
+    doAnalyzeBegin(msg).catch(err => {
       postOut({ type: 'analyze_error', message: String((err && err.message) || err) })
     })
     return
   }
 
-  if (msg.type === 'pitch') {
+  if (msg.type === 'analyze_chunk') {
     try {
-      doPitch(msg)
+      doAnalyzeChunk(msg)
+    } catch (err) {
+      sessionFree()
+      postOut({ type: 'analyze_error', message: String((err && err.message) || err) })
+    }
+    return
+  }
+
+  if (msg.type === 'analyze_end') {
+    try {
+      doAnalyzeEnd(msg)
+    } catch (err) {
+      sessionFree()
+      postOut({ type: 'analyze_error', message: String((err && err.message) || err) })
+    }
+    return
+  }
+
+  if (msg.type === 'preview') {
+    try {
+      doPreview(msg)
     } catch (err) {
       postOut({ type: 'error', message: String((err && err.message) || err) })
     }
+    return
+  }
+
+  if (msg.type === 'process') {
+    doProcess(msg).catch(err => {
+      postOut({ type: 'error', message: String((err && err.message) || err) })
+    })
     return
   }
 })

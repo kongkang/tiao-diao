@@ -10,3 +10,10 @@ tools/pay-secrets.json
 # 依赖与系统文件
 node_modules/
 .DS_Store
+
+# 本地 agent 会话产物
+.zcode/
+
+# 口播推荐视频本地素材(大文件,只留本地)
+tools/promo/
+tools/promo2/

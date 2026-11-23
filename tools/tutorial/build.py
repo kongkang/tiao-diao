@@ -217,6 +217,14 @@ def compose_outro_bg(scene):
             tcenter(d, x0 + 74, yy + 82, str(ri * 3 + ci + 1), font(56), (255, 255, 255))
             tcenter(d, x0 + 118 + (pw - 118) / 2, yy + ph / 2, s, f, (0, 0, 0))
     tcenter(d, CW / 2, 2170, scene["small"], font(78), (4, 138, 66))
+    # 小程序码：放底部空白区，白色圆角衬底 + 引导文案
+    qr_path = os.path.join(BASE, "assets", "qr.jpg")
+    if os.path.exists(qr_path):
+        qr = Image.open(qr_path).convert("RGB").resize((880, 880), Image.LANCZOS)
+        rrect(d, [CW / 2 - 500, 2430, CW / 2 + 500, 3430], 48,
+              fill=(255, 255, 255), outline=(217, 221, 227), width=4)
+        c.paste(qr, (CW // 2 - 440, 2450))
+        tcenter(d, CW / 2, 3560, "扫码直接体验", font(76), (0, 0, 0))
     return c
 
 # ---------- 字幕层（静态 overlay，不参与 zoom） ----------
@@ -279,6 +287,23 @@ def _apply_pron(text):
         text = text.replace(w, p)
     return text
 
+def _fish_proxies():
+    """代理发现：.env FISH_PROXY > 本机常见代理端口（Surge 6152 / Clash 7890）"""
+    import socket
+    p = ENV.get("FISH_PROXY") or os.environ.get("FISH_PROXY")
+    if p:
+        return {"https": p, "http": p}
+    for port in (6152, 7890):
+        try:
+            s = socket.socket(); s.settimeout(0.5)
+            s.connect(("127.0.0.1", port)); s.close()
+            url = f"http://127.0.0.1:{port}"
+            print(f"  [fish 走本机代理 {url}]")
+            return {"https": url, "http": url}
+        except Exception:
+            continue
+    return None
+
 def tts_fish(text, path_m4a):
     body = json.dumps({
         "text": text, "reference_id": FISH_REF, "format": "mp3", "mp3_bitrate": 128,
@@ -298,7 +323,8 @@ def tts_fish(text, path_m4a):
     for attempt in range(5):
         try:
             resp = _rq.post("https://api.fish.audio/v1/tts", data=req.data,
-                            headers=headers, timeout=(20, 300))
+                            headers=headers, timeout=(20, 300),
+                            proxies=_fish_proxies())
             resp.raise_for_status()
             audio = resp.content
             break
@@ -323,19 +349,25 @@ def tts_fish(text, path_m4a):
     os.remove(tmp)
 
 def tts(text, path_m4a, path_aiff):
-    text = _apply_pron(text)
-    if FISH_KEY:
+    tag = os.path.join(BUILD, os.path.basename(path_m4a).replace(".m4a", ".txt"))
+    if os.environ.get("TTS_REFRESH") != "1" and os.path.exists(path_m4a) \
+            and os.path.exists(tag) and open(tag, encoding="utf-8").read() == text:
+        print("  [TTS 缓存命中]")
+        return
+    if FISH_KEY and not os.environ.get("FISH_AUDIO_OFFLINE"):
         if not FISH_REF:
             raise RuntimeError(".env 缺 FISH_AUDIO_REFERENCE_ID（kqb 音色 id）")
-        tts_fish(text, path_m4a)
+        tts_fish(_apply_pron(text), path_m4a)   # 多音字标注只用于 fish
+        open(tag, "w", encoding="utf-8").write(text)
         return
-    print("  [未配 fish key，回退系统 say]")
+    print("  [fish 不可用（离线开关/未配 key），回退系统 say]")
     subprocess.run(["say", "-v", CFG["tts_voice"], "-r", str(CFG["tts_rate"]),
                     "-o", path_aiff, text], check=True)
     subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                     "-i", path_aiff,
                     "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
                     "-ar", "44100", "-ac", "1", "-c:a", "aac", path_m4a], check=True)
+    open(tag, "w", encoding="utf-8").write(text)
 
 def probe_dur(p):
     r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",

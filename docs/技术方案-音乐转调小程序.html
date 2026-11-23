@@ -153,7 +153,7 @@
   <tr><td>mp3</td><td><span class="tag t-ok">支持</span></td><td><span class="tag t-ok">支持</span></td><td>最常见，覆盖绝大多数用户文件</td></tr>
   <tr><td>m4a / aac</td><td><span class="tag t-ok">支持</span></td><td><span class="tag t-ok">支持</span></td><td>苹果音乐、语音备忘录导出常见</td></tr>
   <tr><td>wav</td><td><span class="tag t-ok">支持</span></td><td><span class="tag t-ok">支持</span></td><td>无损，但文件大</td></tr>
-  <tr><td>flac</td><td><span class="tag t-ok">iOS 11+ 支持</span></td><td><span class="tag t-warn">部分机型</span></td><td>无损，文件大，容易超过 25MB 选择上限</td></tr>
+  <tr><td>flac</td><td><span class="tag t-ok">iOS 11+ 支持</span></td><td><span class="tag t-warn">部分机型</span></td><td>无损，文件大，容易接近 100MB 读取上限</td></tr>
   <tr><td>ogg / opus</td><td><span class="tag t-risk">不支持</span></td><td><span class="tag t-ok">支持</span></td><td>少见，可给出友好提示</td></tr>
   <tr><td>wma / ape</td><td><span class="tag t-risk">不支持</span></td><td><span class="tag t-risk">不支持</span></td><td>⚠️ 戏曲/京剧伴奏资源站大量用 wma，目标用户高发（2026-10-05 实测确认）。代码已做文件头魔数嗅探，选中 wma 会明确提示"转成 mp3 再发到微信里就能转了"，不会只报泛泛的"格式打不开"</td></tr>
   <tr><td>微信语音消息</td><td><span class="tag t-risk">不支持</span></td><td><span class="tag t-risk">不支持</span></td><td>silk/amr 格式，接口选不到，也不适合转调</td></tr>
@@ -178,7 +178,7 @@
 
 <h3>内存风险的对冲措施（都要做）</h3>
 <ul>
-  <li><b>时长上限</b>：首版限制 8 分钟以内，超出友好提示（覆盖 95% 歌曲）</li>
+  <li><b>时长上限</b>：不设人为上限（2026-11 更新）。受微信平台单文件 100MB 限制；处理改为分块流式，内存不随歌曲长度增长。超长音频自动降码率适配单文件上限</li>
   <li><b>Int16 管线</b>：SoundTouch 支持 short 采样，内存占用减半</li>
   <li><b>及时释放</b>：解码得到的 AudioBuffer 处理完立刻置空，监听 <code>wx.onMemoryWarning</code> 做兜底清理</li>
   <li><b>iOS 开启实验 Worker</b>：<code>wx.createWorker(path, {useExperimentalWorker: true})</code>，官方称 iOS 下 JS 运行效率提升数倍；配 <code>onProcessKilled</code> 自动重建</li>
@@ -225,7 +225,7 @@
   <tr>
     <td>iOS 内存峰值导致小程序被系统回收</td>
     <td><span class="tag t-warn">中</span></td>
-    <td>Int16 管线 + 8 分钟时长上限 + 内存警告监听 + 处理前提示"处理期间请不要切到后台"</td>
+    <td>Int16 管线已升级为分块流式（不常驻整首 PCM）+ 内存警告监听 + 处理前提示"处理期间请不要切到后台"；输出按 95MB 上限自动降码率</td>
   </tr>
   <tr>
     <td>音乐版权 / 小程序类目审核</td>
@@ -290,7 +290,7 @@
     <li><b>算法许可</b>：SoundTouch 是 LGPL 协议（WASM 打包属于静态链接，商用需注意合规，作者也提供商业授权）。替代方案是自行实现相位声码器（工作量 +3~5 天，无许可问题）。你倾向哪个？</li>
     <li><b>输出格式</b>：默认 <b>MP3</b>（文件小、微信里能直接播放，推荐）还是 WAV（无损但 4 分钟约 40MB）？</li>
     <li><b>是否做"免费试听 15 秒"</b>：我强烈建议做，能显著降低看完广告却不满意的投诉。</li>
-    <li><b>时长上限</b>：建议 8 分钟。如果你要支持更长（如整首交响乐），需要额外做分块处理，工期增加。</li>
+    <li><b>时长上限</b>：已取消人为上限，由微信单文件 100MB + 输出码率自然约束；分块流式处理已实现（2026-11-10）。</li>
   </ol>
 </div>
 

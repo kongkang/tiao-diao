@@ -1,12 +1,13 @@
-// 音频服务：选文件 → 读字节 → 嗅探 → Worker 统一解码（FFmpeg WASM）→ 元数据
-// PCM 全程常驻 Worker（v3 内存架构）：主线程只传文件字节（几 MB）和收小结果包，
-// 不再有全量 PCM 跨线程拷贝（不支持 transfer 的机型上那是真机 OOM 的主因）。
-// 2026-11-09 试听改分片流式：每片 10 秒，边播边取；主线程峰值从整段 3 分钟 PCM
-// （约 63MB 交错 + 63MB AudioBuffer）降到约 2 片（约 7MB）。
+// 音频服务：选文件 → 嗅探文件头 → Worker 会话式解码（FFmpeg WASM）→ 元数据
+// v4 长音频架构：不再把整文件读进主线程、也不在 Worker 常驻整首 PCM。
+// 输入按 4MB 分块上传（engine.analyzeFile），试听按 10 秒窗口解码，
+// 全曲处理在 Worker 里流式变调 + MP3 分块回传，内存与歌曲长度无关。
+// 2026-11-09 试听分片流式：每片 10 秒，边播边取；主线程峰值约 2 片（约 7MB）。
 
 const config = require('../config.js')
 const engine = require('./engine.js')
-const { fmtDurationChinese } = require('../utils/format.js')
+
+const SNIFF_BYTES = 32
 
 /** 从微信聊天记录选一个音频文件
  *  wma/ogg/amr/ape 也放进可选列表：真机上 extension 过滤会把列表外的文件直接灰掉、
@@ -26,12 +27,24 @@ function chooseMessageFile() {
   })
 }
 
-/** 读文件为 ArrayBuffer */
-function readFile(path) {
+/** 只读文件头（不把 100MB 文件整个读进主线程） */
+function readHeader(path) {
   return new Promise((resolve, reject) => {
     wx.getFileSystemManager().readFile({
       filePath: path,
+      position: 0,
+      length: SNIFF_BYTES,
       success: res => resolve(res.data),
+      fail: err => reject(new Error('读取文件失败：' + (err.errMsg || ''))),
+    })
+  })
+}
+
+function getFileSize(path) {
+  return new Promise((resolve, reject) => {
+    wx.getFileSystemManager().stat({
+      path,
+      success: res => resolve(res.stats.size || 0),
       fail: err => reject(new Error('读取文件失败：' + (err.errMsg || ''))),
     })
   })
@@ -75,32 +88,28 @@ function unsupportedError(format) {
   return new Error(tips[format] || '这个格式打不开，换 mp3 文件试试')
 }
 
-/** 选 + 校验 + 解码（字节进 Worker，PCM 常驻），一步到位 */
+/** 选 + 校验 + 建立解码会话（主线程只传 4MB 分块，不整文件读入） */
 async function loadSong() {
   const file = await chooseMessageFile()
 
   if (file.size > config.MAX_FILE_MB * 1024 * 1024) {
-    throw new Error('这个文件太大了（超过 ' + config.MAX_FILE_MB + 'MB），换一个小一点的')
+    throw new Error('微信单个文件最多 ' + config.MAX_FILE_MB + 'MB，换个小一点的')
   }
 
-  const buf = await readFile(file.path)
-  const format = sniffFormat(buf)
+  const head = await readHeader(file.path)
+  const format = sniffFormat(head)
   if (format === 'ogg' || format === 'amr' || format === 'ape') {
     throw unsupportedError(format)
   }
 
   wx.showLoading({ title: '正在读取', mask: true })
   try {
-    const meta = await engine.analyze(buf)
+    const meta = await engine.analyzeFile(file.path, file.size)
     wx.hideLoading()
-    const durationSec = meta.frames / meta.sampleRate
-    if (durationSec > config.MAX_DURATION_SEC) {
-      engine.abort()   // 常驻数据不要了
-      throw new Error('太长了（' + fmtDurationChinese(durationSec) + '），最多支持 8 分钟以内的歌')
-    }
+    const durationSec = meta.durationSec || (meta.frames / meta.sampleRate) || 0
     if (durationSec < 2) {
       engine.abort()
-      throw new Error('这段音乐太短了')
+      throw new Error(durationSec > 0 ? '这段音乐太短了' : '读不出这首歌的时长，换一首试试')
     }
     const song = {
       path: file.path,
@@ -108,7 +117,7 @@ async function loadSong() {
       size: file.size,
       format,
       token: meta.token,
-      frames: meta.frames,
+      frames: meta.frames || Math.round(durationSec * meta.sampleRate),
       sampleRate: meta.sampleRate,
       channels: meta.channels,
       durationSec,
@@ -121,19 +130,20 @@ async function loadSong() {
 }
 
 /**
- * 确保这首歌在 Worker 里可用（Worker 进程被杀后常驻数据会丢，
- * 这里自检并自动按 path 重新解码，调用方无感）
+ * 确保这首歌的解码会话还在（Worker 进程被杀后会丢，
+ * 这里自检并自动按 path 重新上传/解码，调用方无感）
  */
 async function ensureSong(song) {
   if (!song) throw new Error('还没有选择音乐')
   if (await engine.storeHas(song.token)) return song
-  const buf = await readFile(song.path)
-  const meta = await engine.analyze(buf)
+  const size = song.size || await getFileSize(song.path)
+  const meta = await engine.analyzeFile(song.path, size)
+  song.size = size
   song.token = meta.token
-  song.frames = meta.frames
+  song.frames = meta.frames || song.frames || 0
   song.sampleRate = meta.sampleRate
   song.channels = meta.channels
-  song.durationSec = meta.frames / meta.sampleRate
+  song.durationSec = meta.durationSec || (meta.frames / meta.sampleRate) || song.durationSec || 0
   return song
 }
 
@@ -310,8 +320,6 @@ function playPreviewChunked(opts) {
             semitones: opts.semitones,
             startSec: from,
             maxSec: to - from,
-            sampleRate: opts.sampleRate,
-            channels: opts.channels,
           })
           if (stream.cancelled || stream.seq !== seq) return
 

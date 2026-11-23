@@ -14,8 +14,8 @@
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-async function injectSong(mp, seconds) {
-  const start = await mp.evaluate((sec) => {
+async function injectSong(mp, seconds, name) {
+  const start = await mp.evaluate((sec, nm) => {
     const engine = require('services/engine.js')
     const session = require('services/session.js')
     // 测试全程静音：只走流程不出声（避免打扰），真机不受此开关影响
@@ -43,7 +43,7 @@ async function injectSong(mp, seconds) {
     engine.analyze(buf)
       .then(meta => {
         session.setSong({
-          path: '/tmp/injected-' + sec + 's.wav', name: '测试歌（' + sec + '秒）.wav',
+          path: '/tmp/injected-' + sec + 's.wav', name: nm || ('测试歌（' + sec + '秒）.wav'),
           size: buf.byteLength, format: 'wav',
           token: meta.token, frames: meta.frames,
           sampleRate: meta.sampleRate, channels: meta.channels,
@@ -54,7 +54,7 @@ async function injectSong(mp, seconds) {
       })
       .catch(e => { globalThis.__inj = { status: 'error', msg: String(e.message || e) } })
     return { started: true }
-  }, seconds)
+  }, seconds, name)
   console.log('注入启动:', JSON.stringify(start))
 
   // 轮询等 analyze 完成（每次 evaluate 都很轻，不撞 10s 上限）

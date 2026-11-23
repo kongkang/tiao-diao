@@ -22,11 +22,13 @@ module.exports = {
   PAY_OFFLINE_FREE: false,
 
   // ============ 音频处理 ============
-  MAX_DURATION_SEC: 480,      // 歌曲时长上限：8 分钟
-  MAX_FILE_MB: 25,            // chooseMessageFile 单文件上限
+  // 微信平台限制（2026-11 官方文档）：readFile/writeFile/appendFile 单文件 100MB；
+  // 本地用户文件+缓存共 200MB。时长不设上限，由单文件大小和输出码率自然约束。
+  MAX_FILE_MB: 100,           // 微信 readFile 单文件上限
+  MAX_OUTPUT_MB: 95,          // 输出留 5MB 余量，避免撞 100MB 平台上限
   PREVIEW_SEC: 180,           // 免费试听秒数（3 分钟；歌曲不足 3 分钟时试听=全曲）
-  ENCODE: 'mp3',              // 输出 mp3（3 分钟约 4MB；wav 是 8 倍大，仅作兼容备份项）
-  MP3_KBPS: 160,              // MP3 码率
+  ENCODE: 'mp3',              // 输出 mp3（长音频只支持 mp3；wav 会迅速超过 100MB）
+  MP3_KBPS: 160,              // MP3 默认码率；超长时由 services/quality.js 自动降档
   WMA_DECODE_ENABLED: true,   // wma 由自带 FFmpeg WASM 解码（Worker 内 WXWebAssembly）
 
   // ============ 计费规则（已定稿，勿随意改） ============

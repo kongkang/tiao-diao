@@ -63,7 +63,7 @@
       <text class="tag">aac</text>
     </view>
     <view class="text-sub text-small" style="margin-top:16rpx;">
-      一首歌最长 8 分钟。\n只在你手机里处理，不会传到网上。
+      单个文件最大 100MB（微信上限）。\n超长音频会自动降低码率，处理会久一些。\n只在你手机里处理，不会传到网上。
     </view>
   </view>
 

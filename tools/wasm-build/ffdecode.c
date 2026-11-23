@@ -1,12 +1,15 @@
 /**
- * ffdecode.c —— 最小化 FFmpeg WASM 解码垫片 v2（拉取式流式接口）
+ * ffdecode.c —— 最小化 FFmpeg WASM 解码垫片 v3（拉取式 + 随机定位）
  *
- * v2 变化：一次性 ff_decode（整个输出在 wasm 堆里累积，堆膨胀后永不回缩）
- * 改为 ff_open / ff_pull / ff_pull_free 三段式：
+ * 接口：
  *   ff_open(字节, 长度)  打开+定位音频流，不读完全部数据（wasm 堆峰值 ≈ 输入文件大小）
- *   ff_pull(dst, max)    每次拷最多 max 个 float 到 dst，返回实际数；0=解完
+ *   ff_pull(dst, max)    每次拷最多 max 个 float 到 dst，返回实际数；0=解完；-1=错误
+ *   ff_seek(秒)          随机定位（AVSEEK_FLAG_BACKWARD），试听窗口用
+ *   ff_tell()            当前下一个待拉样本的时间（秒），用于丢弃 seek 的 pre-roll
  *   ff_close()           释放全部
- * 调用方在 JS 堆里累积 PCM，wasm 堆保持小体积（解决真机 worker 被杀的主因之一）。
+ * 调用方在 JS 堆里按块处理，wasm 堆不再累积整首 PCM。
+ *
+ * 支持采样格式：FLTP / S16P / FLT / S16 / S32P / S32（24-bit FLAC/WAV 走 S32）。
  *
  * JS 调用协议：
  *   const p = malloc(bytes.length); heap.set(bytes, p);
@@ -17,12 +20,14 @@
  *   }
  *
  * 错误码（ff_err）：1=内存不足 2=容器打不开/损坏 3=无音频轨 4=解码器打不开(可能加密)
- *                  5=采样格式不支持 6=没解出数据 7=状态错误
+ *                  5=采样格式不支持 6=没解出数据 7=状态错误 8=定位失败
  */
 
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <libavutil/mem.h>
+#include <libavutil/mathematics.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 
@@ -93,6 +98,35 @@ void ff_close(void) {
   g_frame_pos = 0;
   g_eof_sent = 0;
   g_pending = 0;
+}
+
+/** 随机定位到 sec（0 起）。返回 0 成功，-1 失败（看 ff_err） */
+int ff_seek(double sec) {
+  if (!g_opened) { g_err = 7; return -1; }
+  if (sec < 0) sec = 0;
+  int64_t ts = (int64_t)(sec * AV_TIME_BASE);
+  if (g_fmt->start_time != AV_NOPTS_VALUE) ts += g_fmt->start_time;
+  if (av_seek_frame(g_fmt, -1, ts, AVSEEK_FLAG_BACKWARD) < 0) {
+    g_err = 8;
+    return -1;
+  }
+  avcodec_flush_buffers(g_cdc);
+  if (g_pkt) av_packet_unref(g_pkt);
+  if (g_frame) av_frame_unref(g_frame);
+  g_frame_pos = 0;
+  g_eof_sent = 0;
+  g_pending = 0;
+  if (g_cdc->sample_rate > 0) g_rate = g_cdc->sample_rate;
+  return 0;
+}
+
+/** 当前“下一个待拉样本”的时间（秒，0 起）；帧未就绪返回 -1 */
+double ff_tell(void) {
+  if (!g_opened || !g_frame || g_frame->best_effort_timestamp == AV_NOPTS_VALUE) return -1;
+  double t = g_frame->best_effort_timestamp * av_q2d(g_fmt->streams[g_stream]->time_base);
+  if (g_fmt->start_time != AV_NOPTS_VALUE) t -= g_fmt->start_time / (double)AV_TIME_BASE;
+  if (g_cdc && g_cdc->sample_rate > 0) t += (double)g_frame_pos / g_cdc->sample_rate;
+  return t;
 }
 
 /** 打开输入并定位音频流。返回 0 成功，-1 失败（看 ff_err） */
@@ -183,6 +217,16 @@ static int drain_frame(float *dst, int max_floats) {
     const int16_t *src = (const int16_t *)g_frame->data[0];
     for (; g_frame_pos < ns && copied + ch <= max_floats; g_frame_pos++) {
       for (int c = 0; c < ch; c++) dst[copied++] = src[g_frame_pos * och + c] / 32768.0f;
+    }
+  } else if (g_frame->format == AV_SAMPLE_FMT_S32P) {
+    // 24-bit FLAC / WAV 常见输出（24 位样本左对齐在 int32 里）
+    for (; g_frame_pos < ns && copied + ch <= max_floats; g_frame_pos++) {
+      for (int c = 0; c < ch; c++) dst[copied++] = ((const int32_t *)g_frame->data[c])[g_frame_pos] / 2147483648.0f;
+    }
+  } else if (g_frame->format == AV_SAMPLE_FMT_S32) {
+    const int32_t *src = (const int32_t *)g_frame->data[0];
+    for (; g_frame_pos < ns && copied + ch <= max_floats; g_frame_pos++) {
+      for (int c = 0; c < ch; c++) dst[copied++] = src[g_frame_pos * och + c] / 2147483648.0f;
     }
   } else {
     return -1;   // 不支持的采样格式
