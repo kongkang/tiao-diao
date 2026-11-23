@@ -2,6 +2,7 @@
   "pages": [
     "pages/index/index",
     "pages/me/index",
+    "pages/link/index",
     "pages/pitch/index",
     "pages/unlock/index",
     "pages/process/index",

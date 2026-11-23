@@ -13,6 +13,7 @@
   </view>
 
   <button class="btn-primary" bindtap="onShare">发回微信</button>
+  <button class="btn-plain" wx:if="{{imported}}" bindtap="onShareOriginal" style="margin-top:16rpx;">发原曲到微信（不再扣费）</button>
 
   <view class="tip-box">
     点上面的按钮 → 发给自己（或文件助手）→ 回到微信<text class="bold">长按那条音乐，点「保存」</text>，就到手机里了。

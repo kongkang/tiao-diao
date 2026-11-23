@@ -10,6 +10,7 @@ function fmtTime(sec) {
 page({
   data: {
     result: null,
+    imported: false,   // 链接导入的歌：结果页多一个「发原曲」（本次已付费，不另扣）
     playing: false,
     progress: 0,
     timeText: '0:00',
@@ -21,7 +22,8 @@ page({
       wx.reLaunch({ url: '/pages/index/index' })
       return
     }
-    this.setData({ result })
+    const song = session.getSong()
+    this.setData({ result, imported: !!(song && song.imported) })
 
     this.player = wx.createInnerAudioContext()
     this.player.src = result.path
@@ -60,6 +62,24 @@ page({
       }
     } catch (e) {
       wx.showToast({ title: e.message || '发送失败', icon: 'none' })
+    }
+  },
+
+  /** 链接导入的原曲：随本次下载一起解锁，不重复扣费 */
+  async onShareOriginal() {
+    const song = session.getSong()
+    if (!song || !song.path) return
+    const name = (song.name || '原曲') + '.' + (song.format || 'mp3')
+    try {
+      const r = await fileSvc.shareResult(song.path, name)
+      if (r !== 'cancel') {
+        wx.showToast({ title: '发出去了，长按那条音频就能保存', icon: 'none', duration: 2500 })
+      }
+    } catch (e) {
+      const msg = /exist|not find|not found/i.test(e.message || '')
+        ? '原曲的临时文件被系统清掉了，重新导入一次就好'
+        : (e.message || '发送失败')
+      wx.showToast({ title: msg, icon: 'none', duration: 2500 })
     }
   },
 

@@ -21,6 +21,7 @@
     <view class="hero-icon" bindtap="onHeroTap">🎵</view>
     <view class="hero-text">把音乐升高或降低\n唱歌跟着不费劲</view>
     <button class="btn-primary" bindtap="onChoose">从微信选音乐</button>
+    <button class="btn-plain" style="margin-top:16rpx;" bindtap="onLinkImport">贴链接导入（B站 / 唱吧 / 全民K歌）</button>
   </view>
 
   <!-- 最近转过（本地历史，有记录才显示） -->
@@ -63,7 +64,7 @@
       <text class="tag">aac</text>
     </view>
     <view class="text-sub text-small" style="margin-top:16rpx;">
-      一首歌最长 8 分钟。\n只在你手机里处理，不会传到网上。
+      单个文件最大 100MB（微信上限）。\n超长音频会自动降低码率，处理会久一些。\n只在你手机里处理，不会传到网上。
     </view>
   </view>
 

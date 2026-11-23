@@ -14,8 +14,8 @@
     {
       "id": "s01-pick",
       "type": "phone",
-      "img": "index-with-history.png",
-      "hl": [88, 245, 280, 310],
+      "img": "tut-index-hist.png",
+      "hl": [88, 348, 280, 412],
       "hl_kind": "tap",
       "chip": "第 1 步",
       "title": "点「从微信选音乐」",
@@ -25,8 +25,8 @@
     {
       "id": "s02-pitch",
       "type": "phone",
-      "img": "pitch-preview.png",
-      "hl": [26, 196, 340, 300],
+      "img": "tut-pitch-loaded.png",
+      "hl": [26, 198, 340, 300],
       "hl_kind": "tap",
       "chip": "第 2 步",
       "title": "加号升高 · 减号降低",
@@ -35,28 +35,29 @@
     {
       "id": "s03-preview",
       "type": "phone",
-      "img": "pitch-preview.png",
-      "hl": [12, 440, 355, 568],
+      "img": "tut-pitch-preview.png",
+      "hl": [12, 438, 355, 565],
       "hl_kind": "tap",
       "chip": "第 3 步",
-      "title": "点 ▶ 试听 15 秒",
-      "narration": "第三步，试听。点播放键，每次听十五秒。觉得合适了，就点下一步。"
+      "title": "点 ▶ 先听 3 分钟",
+      "narration": "第三步，试听。点播放键，先听三分钟，拖进度条能换个位置。觉得合适了，就点下一步。"
     },
     {
-      "id": "s04-start",
+      "id": "s04-unlock",
       "type": "phone",
-      "img": "reward-free.png",
-      "hl": [88, 355, 280, 425],
+      "img": "tut-unlock-free-selected.png",
+      "hl": [12, 240, 355, 322],
       "hl_kind": "tap",
       "chip": "第 4 步",
-      "title": "点「开始转调」",
-      "sub": "内测全免费",
-      "narration": "第四步，开始转调。现在内测，全部免费。点绿色的开始转调。"
+      "title": "选「限时免费」",
+      "sub": "不花钱 · 也可 1 元 60 分钟 / 包月 9.9",
+      "narration": "第四步，选下载方式。不花钱，选限时免费。也有一块钱六十分钟，九块九包月。选好，点下面的按钮。"
     },
     {
       "id": "s05-wait",
-      "type": "mock-process",
-      "hl": [14, 92, 353, 300],
+      "type": "phone",
+      "img": "tut-process-1.png",
+      "hl": [12, 95, 355, 350],
       "hl_kind": "none",
       "chip": "稍等一下",
       "title": "等进度条走完",
@@ -65,7 +66,7 @@
     {
       "id": "s06-send",
       "type": "phone",
-      "img": "result.png",
+      "img": "tut-result.png",
       "hl": [88, 418, 280, 472],
       "hl_kind": "tap",
       "chip": "第 5 步",
@@ -76,10 +77,10 @@
     {
       "id": "s07-outro",
       "type": "outro",
-      "narration": "总结一下：选歌、调调、试听、转调、发回微信。内测全免费，快去试试吧。",
+      "narration": "总结一下：选歌、调调、试听、转调、发回微信。限时免费，快去试试吧。",
       "title": "就这么简单",
       "steps": ["选歌", "调调", "试听", "转调", "发回微信"],
-      "small": "内测全免费 · 快去试试吧"
+      "small": "限时免费 · 快去试试吧"
     }
   ]
 }

@@ -1,10 +1,12 @@
 // 格式化工具
 
-/** 秒 → "4 分 12 秒" */
+/** 秒 → "4 分 12 秒" / "1 小时 3 分"（长音频用） */
 function fmtDurationChinese(sec) {
   const s = Math.round(sec)
-  const m = Math.floor(s / 60)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
   const r = s % 60
+  if (h > 0) return h + ' 小时' + (m > 0 ? ' ' + m + ' 分' : '')
   if (m === 0) return r + ' 秒'
   return m + ' 分 ' + r + ' 秒'
 }

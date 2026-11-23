@@ -94,9 +94,9 @@ async function main() {
   d = await page.data()
   check('暂停后点按钮→续播', d.playState === 'playing', d.playState)
 
-  // 6) 自然播完 → 回 idle，指针前进到听完的位置（>40，约在 45 上下）
+  // 6) 自然播完 → 回 idle；这次从 30s 播到歌尾，按当前逻辑指针回开头
   d = await waitState(page, 'idle', 30000)
-  check('自然播完回 idle，指针停在听完处', d.playState === 'idle' && d.previewStart > 40,
+  check('自然播完回 idle（到歌尾指针回开头）', d.playState === 'idle' && d.previewStart === 0,
     'pos=' + d.previewStart + ' time=' + d.playTimeText)
 
   // 7) 拖到歌尾 50s → 钳位到 45s 起唱；播到结尾指针回 0:00

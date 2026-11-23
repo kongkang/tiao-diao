@@ -173,7 +173,8 @@ module.exports = {
   <span class="y">AD_UNIT_ID</span>: <span class="g">''</span>,                 <span class="c">// 激励视频广告位 ID</span>
   <span class="y">OFFER_ID</span>: <span class="g">''</span>,                   <span class="c">// 虚拟支付 OfferID（AppKey 只在云函数里）</span>
 
-  <span class="y">MAX_DURATION_SEC</span>: <span class="g">480</span>,          <span class="c">// 8 分钟上限</span>
+  <span class="y">MAX_FILE_MB</span>: <span class="g">100</span>,              <span class="c">// 微信 readFile 单文件上限</span>
+  <span class="y">MAX_OUTPUT_MB</span>: <span class="g">95</span>,              <span class="c">// 输出上限，超长自动降码率</span>
   <span class="y">PREVIEW_SEC</span>: <span class="g">15</span>,                <span class="c">// 试听时长</span>
   <span class="y">PRICE_PER_MIN_FEN</span>: <span class="g">10</span>,          <span class="c">// 0.1 元/分钟 = 10 分</span>
   <span class="y">AD_MINUTES_PER_UNIT</span>: <span class="g">3</span>,         <span class="c">// 每 3 分钟 1 个广告</span>
@@ -241,7 +242,7 @@ module.exports = {
   extension: [<span class="g">'mp3','m4a','aac','wav','flac'</span>],   <span class="c">// ⚠️ 仅 type=file 时生效</span>
 })
 <span class="y">const</span> file = res.tempFiles[<span class="g">0</span>]
-<span class="c">// ⚠️ 单文件约 25MB 上限，先提示</span>
+<span class="c">// ⚠️ 单文件 100MB 上限，先提示</span>
 <span class="y">if</span> (file.size &gt; <span class="g">25</span> * <span class="g">1024</span> * <span class="g">1024</span>) <span class="y">return</span> toast(<span class="g">'文件太大了，换一个小一点的'</span>)
 
 <span class="c">// 2. 读字节 → 解码成 PCM</span>
@@ -256,9 +257,9 @@ module.exports = {
 <span class="y">const</span> pcmR = audioBuffer.numberOfChannels &gt; <span class="g">1</span>
   ? audioBuffer.getChannelData(<span class="g">1</span>) : pcmL
 
-<span class="c">// 4. 时长校验</span>
-<span class="y">if</span> (duration &gt; config.MAX_DURATION_SEC)
-  <span class="y">return</span> toast(<span class="g">'太长了，最多 8 分钟'</span>)</pre>
+<span class="c">// 4. 文件大小校验（readFile 单文件 100MB）</span>
+<span class="y">if</span> (file.size &gt; config.MAX_FILE_MB * <span class="g">1024</span> * <span class="g">1024</span>)
+  <span class="y">return</span> toast(<span class="g">'文件超过微信 100MB 上限'</span>)</pre>
 <div class="warn">
   <b>⚠️ 必须真机验证的点</b>：<code>getChannelData</code> 官方文档明确返回 Float32Array，但要 M0 在 iOS + 安卓真机各跑通一次。若某端行为异常，降级方案：打包 <b>dr_libs + mpg123 + flac</b> 的 WASM 解码器（约 300KB），自己解 mp3/wav/flac，绕开系统 API。
 </div>
@@ -537,7 +538,7 @@ src.connect(ctx.destination); src.start()
   <tr><td>变调（WASM）</td><td>8~20 秒（中端机）<br>30~50 秒（低端安卓）</td><td>Int16 管线、实验 Worker、分块回传进度</td></tr>
   <tr><td>MP3 编码</td><td>5~15 秒</td><td>LAME WASM 160kbps</td></tr>
   <tr><td>峰值内存</td><td>&lt; 180MB</td><td>Int16（减半）、处理完立即释放、监听 <code>wx.onMemoryWarning</code></td></tr>
-  <tr><td>时长上限</td><td>8 分钟</td><td>超出直接拒绝并提示，不做分块</td></tr>
+  <tr><td>时长上限</td><td>不设人为上限</td><td>受单文件 100MB 限制；分块流式处理，内存不随长度增长</td></tr>
 </table>
 <div class="warn">
   <b>低端机兜底</b>：如果设备内存 &lt; 4GB 或处理超时 60 秒，自动把采样率降到 32kHz 重试一次（音质损失可控，但能跑完）。<br>
@@ -556,7 +557,7 @@ src.connect(ctx.destination); src.start()
     <li><b>前端支付 success 只算弱确认</b>，真正发货以后端回调 + 轮询 getEntitlement 为准。</li>
     <li><b>Worker 只能有 1 个</b>，重建前 terminate；内部无 wx API；wasm 放 workers 目录外。</li>
     <li><b>WXWebAssembly 只支持包内路径</b>（.wasm / .wasm.br），不能网络加载、不能动态编译。</li>
-    <li><b>chooseMessageFile 单文件约 25MB</b>，flac 大文件要提示；只能选聊天记录，不能读本地文件夹。</li>
+    <li><b>chooseMessageFile/readFile 单文件 100MB</b>，flac 大文件要提示；只能选聊天记录，不能读本地文件夹。</li>
     <li><b>shareFileMessage 必须由用户手势触发</b>，不能自动调用。</li>
     <li><b>处理成功后再扣额度</b>，失败不扣。</li>
     <li><b>个人主体月限额 10 万</b>，接近上限前升级主体。</li>

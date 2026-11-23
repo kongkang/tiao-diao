@@ -1,10 +1,13 @@
 <view class="page-root" style="font-size:{{fontScale * 16}}px;">
 
   <view class="card process-card">
-    <view class="percent">{{percent}}%</view>
-    <view class="pbar"><view class="pbar-fill" style="width:{{percent}}%;"></view></view>
+    <view class="percent" wx:if="{{!indeterminate}}">{{percent}}%</view>
+    <view class="percent" wx:else>处理中…</view>
+    <view class="pbar"><view class="pbar-fill" style="width:{{indeterminate ? 0 : percent}}%;"></view></view>
     <view class="process-title">正在处理，请稍等</view>
     <view class="text-sub text-small">大约需要 {{estimateText}}\n别退出，也别切出去</view>
+    <view class="text-sub text-small" wx:if="{{longWarning}}">{{longWarning}}</view>
+    <view class="text-sub text-small" wx:if="{{qualityText}}">{{qualityText}}</view>
   </view>
 
   <view class="card">
