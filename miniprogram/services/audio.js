@@ -88,6 +88,40 @@ function unsupportedError(format) {
   return new Error(tips[format] || '这个格式打不开，换 mp3 文件试试')
 }
 
+/** 从本地路径建 song(选文件/链接导入共用):嗅探 + 解码会话 + 元数据 */
+async function buildSongFromPath(path, name, size) {
+  const head = await readHeader(path)
+  const format = sniffFormat(head)
+  if (format === 'ogg' || format === 'amr' || format === 'ape') {
+    throw unsupportedError(format)
+  }
+
+  wx.showLoading({ title: '正在读取', mask: true })
+  try {
+    const meta = await engine.analyzeFile(path, size)
+    wx.hideLoading()
+    const durationSec = meta.durationSec || (meta.frames / meta.sampleRate) || 0
+    if (durationSec < 2) {
+      engine.abort()
+      throw new Error(durationSec > 0 ? '这段音乐太短了' : '读不出这首歌的时长，换一首试试')
+    }
+    return {
+      path,
+      name: name || '音乐',
+      size,
+      format,
+      token: meta.token,
+      frames: meta.frames || Math.round(durationSec * meta.sampleRate),
+      sampleRate: meta.sampleRate,
+      channels: meta.channels,
+      durationSec,
+    }
+  } catch (e) {
+    wx.hideLoading()
+    throw e
+  }
+}
+
 /** 选 + 校验 + 建立解码会话（主线程只传 4MB 分块，不整文件读入） */
 async function loadSong() {
   const file = await chooseMessageFile()
@@ -96,37 +130,18 @@ async function loadSong() {
     throw new Error('微信单个文件最多 ' + config.MAX_FILE_MB + 'MB，换个小一点的')
   }
 
-  const head = await readHeader(file.path)
-  const format = sniffFormat(head)
-  if (format === 'ogg' || format === 'amr' || format === 'ape') {
-    throw unsupportedError(format)
-  }
+  return buildSongFromPath(file.path, file.name, file.size)
+}
 
-  wx.showLoading({ title: '正在读取', mask: true })
-  try {
-    const meta = await engine.analyzeFile(file.path, file.size)
-    wx.hideLoading()
-    const durationSec = meta.durationSec || (meta.frames / meta.sampleRate) || 0
-    if (durationSec < 2) {
-      engine.abort()
-      throw new Error(durationSec > 0 ? '这段音乐太短了' : '读不出这首歌的时长，换一首试试')
-    }
-    const song = {
-      path: file.path,
-      name: file.name || '音乐',
-      size: file.size,
-      format,
-      token: meta.token,
-      frames: meta.frames || Math.round(durationSec * meta.sampleRate),
-      sampleRate: meta.sampleRate,
-      channels: meta.channels,
-      durationSec,
-    }
-    return song
-  } catch (e) {
-    wx.hideLoading()
-    throw e
+/** 链接导入：云端提取好的本地临时文件 → song（时长以实际解码为准，计费口径不变） */
+async function importSongFromPath(path, name, sizeHint) {
+  const size = sizeHint || await getFileSize(path)
+  if (size > config.MAX_FILE_MB * 1024 * 1024) {
+    throw new Error('这个音频超过 ' + config.MAX_FILE_MB + 'MB，换个短一点的')
   }
+  const song = await buildSongFromPath(path, name, size)
+  song.imported = true   // 结果页据此显示「发原曲」（已随本次下载付费，不再扣）
+  return song
 }
 
 /**
@@ -466,7 +481,7 @@ function stopPreview() {
 }
 
 module.exports = {
-  loadSong, ensureSong,
+  loadSong, ensureSong, importSongFromPath,
   playPreviewChunked, playInterleavedF32,
   stopPreview, pausePreview, resumePreview, getPreviewState,
   setPreviewMuted, sniffFormat,

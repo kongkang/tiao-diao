@@ -52,6 +52,11 @@ page({
     }
   },
 
+  /** 贴链接导入：B站/唱吧/全民K歌 → 云端提取音频 → 同一套转调管线 */
+  onLinkImport() {
+    wx.navigateTo({ url: '/pages/link/index' })
+  },
+
   /** 🎵 图标连点 5 次 → 解锁本地管理员（普通用户发现不了，也不影响使用） */
   onHeroTap() {
     const now = Date.now()

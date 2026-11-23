@@ -1,0 +1,61 @@
+<view class="page-root" style="font-size:{{fontScale * 16}}px;">
+
+  <block wx:if="{{enabled}}">
+
+    <!-- 输入卡 -->
+    <view class="card">
+      <view class="sec-title">把歌的分享链接贴进来</view>
+      <textarea
+        class="url-box"
+        value="{{urlText}}"
+        placeholder="在B站/唱吧/K歌里点「分享 → 复制链接」,把复制的文字粘到这里"
+        placeholder-class="url-ph"
+        maxlength="2000"
+        auto-height
+        bindinput="onInput"
+      ></textarea>
+      <view class="row">
+        <button class="btn-plain row-btn" bindtap="onPaste">粘贴</button>
+        <button class="btn-plain row-btn" bindtap="onClear">清空</button>
+      </view>
+      <button class="btn-primary" disabled="{{parsing}}" bindtap="onParse">
+        {{parsing ? '正在解析…' : '开始解析'}}
+      </button>
+    </view>
+
+    <!-- 解析结果卡 -->
+    <view class="card" wx:if="{{parsed}}">
+      <view class="meta">
+        <image wx:if="{{parsed.cover}}" class="cover" src="{{parsed.cover}}" mode="aspectFill"/>
+        <view wx:else class="cover cover-ph">🎵</view>
+        <view class="meta-main">
+          <view class="meta-title">{{parsed.title}}</view>
+          <view class="text-sub text-small">
+            来自{{parsed.platformName}}<text wx:if="{{parsed.durationText}}"> · {{parsed.durationText}}</text>
+          </view>
+          <view class="badge">自动提取成音频</view>
+        </view>
+      </view>
+      <button class="btn-primary" disabled="{{importing}}" bindtap="onImport">
+        {{importing ? '正在提取…' : '提取音频，去试听'}}
+      </button>
+      <view class="text-sub text-small" style="margin-top:16rpx;text-align:center;">
+        视频链接也一样，只取里面的声音
+      </view>
+    </view>
+
+    <!-- 说明卡 -->
+    <view class="card">
+      <view class="text-sub text-small">
+        解析和试听免费。\n下载要花额度：看个视频，或用分钟数，和从微信选歌一个价。\n提取好的音频只有你自己能看到。
+      </view>
+    </view>
+
+  </block>
+
+  <view class="card" wx:else>
+    <view class="sec-title">链接导入正在整修</view>
+    <view class="text-sub text-small">先用首页的「从微信选音乐」，一样的能用。</view>
+  </view>
+
+</view>

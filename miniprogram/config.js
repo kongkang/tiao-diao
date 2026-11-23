@@ -31,6 +31,10 @@ module.exports = {
   MP3_KBPS: 160,              // MP3 默认码率；超长时由 services/quality.js 自动降档
   WMA_DECODE_ENABLED: true,   // wma 由自带 FFmpeg WASM 解码（Worker 内 WXWebAssembly）
 
+  // ============ 链接导入（B站 / 唱吧 / 全民K歌） ============
+  // 云函数 parseMedia + fetchMedia；云端单文件上限 80MB（cloudfunctions/fetchMedia 里同步改）
+  LINK_IMPORT_ENABLED: true,  // 总开关：审核期可临时关闭（入口与页面一并隐藏）
+
   // ============ 计费规则（已定稿，勿随意改） ============
   // 计费分钟 = max(1, round(秒/60))      四舍五入，最少 1 分钟
   // 广告数   = ceil(分钟/3)              每 3 分钟 1 个
