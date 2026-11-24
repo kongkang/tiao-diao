@@ -1,16 +1,19 @@
-// fetchMedia —— 把 parseMedia 给的 ref 落成云存储里的音频文件
-// 输入:{ ref }  ← 前端把 parseMedia 返回的 ref 原样传回
-// 输出:{ ok, fileID, ext, sizeBytes, title }
+// fetchMedia —— 分块提取音频(断点续传协议,适配任意函数超时)
 //
-// 流程:平台直链(带 Referer)→ 下载(≤80MB)→ 嗅探确为音频 → 传云存储
-// 安全:域名按平台白名单 + 私网段 DNS 拦截(ref 来自前端,可被伪造,必须守)
-// 计费:本函数不涉及;免费,下载/转调导出的付费走现有 unlock 流程。
+// 输入:{ ref, offset }   offset = 客户端已接收字节数(0 起)
+// 输出:{ ok, chunkB64, nextOffset, totalBytes, ext, done, retry }
+//   ext 只在第一块(offset=0)返回;done=已到文件尾;retry=true 表示本次没读到数据,同 offset 重试
+//
+// 设计要点(2026-11-24):
+//   - 每次调用限时 ~2.2s / 1.5MB(二进制),客户端循环拉取拼接 → 函数超时 3s 也能跑,
+//     控制台把超时调大后单块更大、更快,但都不是必须
+//   - 不落云存储:客户端拼完即得本地文件,省掉 media_imports 集合与 24h 清理
+//   - wbi 密钥与音频直链按函数实例进程内缓存(TTL 10min):第一块付解析开销,后续块近乎直连
+//   - 域名白名单 + 私网 DNS 拦截保留(ref 来自前端,必须防伪造 SSRF)
 
 const cloud = require('wx-server-sdk')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
-const db = cloud.database()
-const _ = db.command
 
 const https = require('https')
 const http = require('http')
@@ -19,12 +22,14 @@ const crypto = require('crypto')
 const { URL } = require('url')
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
-const MAX_BYTES = 80 * 1024 * 1024        // 与小程序端 IMPORT_MAX_MB 一致
-const DL_TIMEOUT_MS = 45000
+const CALL_WALL_MS = 2600        // 单次调用总墙钟预算(函数超时 3s 的余量,超时被平台杀掉前自己收)
+const HEADER_TIMEOUT_MS = 1200   // 每个候选的握手/首字节限时:超时就换下一个,绝不在一个坏节点上耗尽预算
+const MAX_CHUNK_BYTES = 1536 * 1024
+const CACHE_TTL_MS = 10 * 60 * 1000
 
 // ---------- 域名白名单(ref.platform 决定) ----------
-// bilibili 特例:官方常把音轨甩到 PCDN 边缘节点(域名不可预测,如 *.edge.xxxx.cn),
-// 这些节点从云上大多连不通;但 B站媒体路径必以 /upgcxcode/ 开头,以路径签名兜底放行。
+// bilibili 特例:官方常把音轨甩到 PCDN 边缘节点(域名不可预测),这些节点从云上大多连不通;
+// 但 B站媒体路径必以 /upgcxcode/ 开头,以路径签名兜底放行。
 const HOST_ALLOWLIST = {
   bilibili: (h, u) =>
     /(^|\.)(bilivideo\.com|bilivideo\.cn|akamaized\.net)$/.test(h) ||
@@ -33,7 +38,7 @@ const HOST_ALLOWLIST = {
   kge: h => /(^|\.)qq\.com$/.test(h),
 }
 
-// ---------- 私网段拦截(与 parseMedia 同款) ----------
+// ---------- 私网段拦截 ----------
 function isPrivateIP(addr) {
   if (addr.family === 6) {
     const s = String(addr.address).toLowerCase()
@@ -49,6 +54,8 @@ function isPrivateIP(addr) {
   return false
 }
 
+const dnsCache = new Map()   // host → { ok, ts }
+
 async function assertFetchable(url, platform) {
   let u
   try { u = new URL(url) } catch (e) { throw new Error('提取地址无效') }
@@ -60,12 +67,56 @@ async function assertFetchable(url, platform) {
     if (isPrivateIP({ family: 4, address: host })) throw new Error('音频来源地址不对')
     return
   }
+  const cached = dnsCache.get(host)
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    if (!cached.ok) throw new Error('音频服务器连不上,过一会儿再试')
+    return
+  }
   const addrs = await dns.lookup(host, { all: true }).catch(() => null)
+  const good = !!(addrs && addrs.length) && addrs.every(a => !isPrivateIP(a))
+  dnsCache.set(host, { ok: good, ts: Date.now() })
+  if (dnsCache.size > 500) dnsCache.clear()
   if (!addrs || !addrs.length) throw new Error('音频服务器连不上,过一会儿再试')
   for (const a of addrs) if (isPrivateIP(a)) throw new Error('音频来源地址不对')
 }
 
-// ---------- bilibili:wbi 签名 → playurl → 最佳音轨直链 ----------
+// ---------- 基础 HTTP ----------
+// keep-alive 连接池:同一实例的后续分块复用 TLS 连接,握手开销归零
+const agentKeep = new https.Agent({ keepAlive: true, maxSockets: 4 })
+const agentPlain = new http.Agent({ keepAlive: true, maxSockets: 4 })
+
+function rawGet(url, headers, { timeoutMs = 1200 } = {}) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('http://') ? http : https
+    const req = mod.get(url, { headers, agent: mod === https ? agentKeep : agentPlain }, res => {
+      resolve({ req, res })
+    })
+    req.on('error', reject)
+    // 限时只管「等到响应头」;数据阶段的预算由 readChunk 自己控
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('响应头超时(' + Math.round(timeoutMs / 100) / 10 + 's),换个节点')))
+  })
+}
+
+function redirectGet(url, headers, { maxRedirects = 3, timeoutMs = 10000 } = {}) {
+  // 只处理 API 类小响应(跟随重定向,收完整 body)
+  return new Promise((resolve, reject) => {
+    const once = (target, left) => {
+      rawGet(target, headers, { timeoutMs }).then(({ req, res }) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && left > 0) {
+          res.resume()
+          return once(new URL(res.headers.location, target).toString(), left - 1)
+        }
+        const chunks = []
+        res.on('data', c => chunks.push(c))
+        res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }))
+        res.on('error', reject)
+      }, reject).catch(reject)
+    }
+    once(url, maxRedirects)
+  })
+}
+
+// ---------- bilibili:wbi 签名 → playurl → 最佳音轨直链(带进程内缓存) ----------
 const MIXIN_KEY_ENC_TAB = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 49, 19, 26, 35,
   42, 3, 24, 45, 37, 17, 32, 6, 18, 37, 32, 4, 26, 18, 1, 8]
 
@@ -80,92 +131,68 @@ function wbiSign(params, imgKey, subKey) {
   return { query, w_rid: md5(query + mixinKey) }
 }
 
-async function biliAudioCandidates(ref) {
-  const headers = {
-    'User-Agent': UA,
-    Referer: 'https://www.bilibili.com/',
-    Cookie: 'buvid3=' + crypto.randomUUID() + 'infoc',
-  }
-  const nav = JSON.parse((await httpsGet('https://api.bilibili.com/x/web-interface/nav', headers)).body.toString('utf8'))
+const biliApiHeaders = () => ({
+  'User-Agent': UA,
+  Referer: 'https://www.bilibili.com/',
+  Cookie: 'buvid3=' + crypto.randomUUID() + 'infoc',
+})
+
+let wbiCache = null   // { imgKey, subKey, ts }
+async function biliWbiKeys(headers) {
+  if (wbiCache && Date.now() - wbiCache.ts < CACHE_TTL_MS) return wbiCache
+  const nav = JSON.parse((await redirectGet('https://api.bilibili.com/x/web-interface/nav', headers)).body.toString('utf8'))
   const img = ((nav.data && nav.data.wbi_img && nav.data.wbi_img.img_url) || '').match(/\/(\w+)\.png/)
   const sub = ((nav.data && nav.data.wbi_img && nav.data.wbi_img.sub_url) || '').match(/\/(\w+)\.png/)
   if (!img || !sub) throw new Error('B站接口开小差(wbi),过一会儿再试')
+  wbiCache = { imgKey: img[1], subKey: sub[1], ts: Date.now() }
+  return wbiCache
+}
+
+const urlCache = new Map()   // cacheKey → { candidates, headers, ts }
+
+async function biliAudioCandidates(ref) {
+  const cacheKey = 'bilibili:' + (ref.bvid || ref.aid) + ':' + ref.cid
+  const hit = urlCache.get(cacheKey)
+  if (hit && Date.now() - hit.ts < CACHE_TTL_MS) return hit
+
+  const headers = biliApiHeaders()
+  const { imgKey, subKey } = await biliWbiKeys(headers)
   const { query, w_rid } = wbiSign({
     bvid: ref.bvid || undefined,
     aid: !ref.bvid && ref.aid ? ref.aid : undefined,
     cid: ref.cid, qn: 64, fnval: 16, fnver: 0, fourk: 1, platform: 'web',
-  }, img[1], sub[1])
-  const p = JSON.parse((await httpsGet('https://api.bilibili.com/x/player/wbi/playurl?' + query + '&w_rid=' + w_rid, headers)).body.toString('utf8'))
+  }, imgKey, subKey)
+  const p = JSON.parse((await redirectGet('https://api.bilibili.com/x/player/wbi/playurl?' + query + '&w_rid=' + w_rid, headers)).body.toString('utf8'))
   if (p.code !== 0) throw new Error('B站播放信息拿不到(' + p.code + '),重新解析一次试试')
   const audios = (p.data && p.data.dash && p.data.dash.audio) || []
   if (!audios.length) throw new Error('这个视频拿不到音轨(可能是特殊格式)')
   audios.sort((a, b) => (b.bandwidth || 0) - (a.bandwidth || 0))
-  // 主链 + 备链都收进来:主链常被甩到 PCDN 节点,备链多是稳定 CDN
+  // 主链 + 备链都收进来;排序:稳定域名优先,靠 /upgcxcode/ 路径签名放行的 PCDN 节点垫底
   const t = audios[0]
   const cands = [t.baseUrl, t.base_url]
     .concat(Array.isArray(t.backupUrl) ? t.backupUrl : [t.backupUrl])
     .concat(Array.isArray(t.backup_url) ? t.backup_url : [t.backup_url])
     .filter(Boolean)
-  return { candidates: [...new Set(cands)], headers }
+  const entry = { candidates: sortStableFirst([...new Set(cands)]), headers, ts: Date.now(), winner: '' }
+  urlCache.set(cacheKey, entry)
+  if (urlCache.size > 200) urlCache.clear()
+  return entry
 }
 
-// ---------- 基础 HTTP(GET,手动跟重定向,流式限大小) ----------
-function httpsGet(url, headers, { timeoutMs = 12000, maxRedirects = 3 } = {}) {
-  return new Promise((resolve, reject) => {
-    const mod = url.startsWith('http://') ? http : https
-    const req = mod.get(url, { headers }, res => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && maxRedirects > 0) {
-        res.resume()
-        const next = new URL(res.headers.location, url).toString()
-        return httpsGet(next, headers, { timeoutMs, maxRedirects: maxRedirects - 1 }).then(resolve, reject)
-      }
-      const chunks = []
-      res.on('data', c => chunks.push(c))
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, finalUrl: url, body: Buffer.concat(chunks) }))
-    })
-    req.on('error', reject)
-    req.setTimeout(timeoutMs, () => req.destroy(new Error('请求超时')))
-  })
+/** 稳定 CDN(域名能对上白名单的)排前面,PCDN(只靠路径签名放行的)垫底 */
+function sortStableFirst(urls) {
+  const score = u => {
+    try {
+      const host = new URL(u).hostname.toLowerCase()
+      return /(^|\.)(bilivideo\.com|bilivideo\.cn|akamaized\.net)$/.test(host) ? 0 : 1
+    } catch (e) { return 2 }
+  }
+  return urls.sort((a, b) => score(a) - score(b))
 }
 
-function downloadMedia(url, headers) {
-  return new Promise((resolve, reject) => {
-    const tryOnce = (target, redirectsLeft) => {
-      const mod = target.startsWith('http://') ? http : https
-      const req = mod.get(target, { headers }, res => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
-          res.resume()
-          return tryOnce(new URL(res.headers.location, target).toString(), redirectsLeft - 1)
-        }
-        if (res.statusCode !== 200) {
-          res.resume()
-          return reject(new Error('音频服务器返回 ' + res.statusCode + ',这个链接可能过期了,重新解析一次'))
-        }
-        const len = parseInt(res.headers['content-length'] || '0', 10)
-        if (len > MAX_BYTES) {
-          res.resume()
-          return reject(new Error('这个音频太大了(超过 80MB),换个短一点的'))
-        }
-        const chunks = []
-        let size = 0
-        res.on('data', c => {
-          size += c.length
-          if (size > MAX_BYTES) {
-            req.destroy()
-            res.resume()
-            return reject(new Error('这个音频太大了(超过 80MB),换个短一点的'))
-          }
-          chunks.push(c)
-        })
-        res.on('end', () => resolve({ buf: Buffer.concat(chunks), status: res.statusCode }))
-      })
-      req.on('error', e => reject(/destroyed|socket hang up/i.test(e.message)
-        ? new Error('音频传到一半断了,再试一次')
-        : e))
-      req.setTimeout(DL_TIMEOUT_MS, () => req.destroy(new Error('下载超时:音频太长或网络不稳,换个短一点的')))
-    }
-    tryOnce(url, 3)
-  })
+function cacheKeyFor(ref) {
+  if (ref.platform === 'bilibili') return 'bilibili:' + (ref.bvid || ref.aid) + ':' + ref.cid
+  return ref.platform + ':' + ref.url
 }
 
 // ---------- 嗅探:必须真的是音频 ----------
@@ -178,23 +205,91 @@ function sniffExt(buf) {
   return null
 }
 
-// ---------- 云存储:清理 24h 前的本用户导入 + 记录本次 ----------
-async function cleanupAndRecord(openid, fileID, title) {
-  try {
-    const cutoff = Date.now() - 24 * 3600 * 1000
-    const old = await db.collection('media_imports')
-      .where({ openid, createdAt: _.lt(cutoff) }).limit(20).get()
-    const ids = (old.data || []).map(d => d.fileID).filter(Boolean)
-    if (ids.length) await cloud.deleteFile({ fileList: ids })
-    await db.collection('media_imports').where({ openid, createdAt: _.lt(cutoff) }).remove()
-  } catch (e) {
-    // 集合还没建/权限问题:不影响主流程,只是旧文件清不掉(见交接文档)
+// ---------- 单块提取:Range 断点读一段 ----------
+function entryFor(ref) {
+  if (ref.platform === 'bilibili') return biliAudioCandidates(ref)
+  const k = cacheKeyFor(ref)
+  let entry = urlCache.get(k)
+  if (!entry) {
+    entry = { candidates: [ref.url], headers: { 'User-Agent': UA }, ts: Date.now(), winner: '' }
+    urlCache.set(k, entry)
   }
-  try {
-    await db.collection('media_imports').add({
-      data: { openid, fileID, title: String(title || '').slice(0, 60), createdAt: Date.now() },
+  return Promise.resolve(entry)
+}
+
+async function extractChunk(ref, offset) {
+  const entry = await entryFor(ref)
+  const { headers } = entry
+  // 上次成功过的节点排最前,避免每块都重走坏节点
+  const ordered = entry.winner
+    ? [entry.winner].concat(entry.candidates.filter(u => u !== entry.winner))
+    : entry.candidates
+
+  const t0 = Date.now()
+  const want = MAX_CHUNK_BYTES
+  let lastErr = null
+
+  for (const target of ordered) {
+    try {
+      await assertFetchable(target, ref.platform)
+      const range = { Range: 'bytes=' + offset + '-' + (offset + want - 1) }
+      let usedUrl = target
+      let r = await rawGet(target, Object.assign({}, headers, range))
+
+      if (r.res.statusCode >= 300 && r.res.statusCode < 400 && r.res.headers.location) {
+        // 媒体 CDN 极少重定向;跟一次
+        r.res.resume()
+        usedUrl = new URL(r.res.headers.location, target).toString()
+        await assertFetchable(usedUrl, ref.platform)
+        r = await rawGet(usedUrl, Object.assign({}, headers, range))
+      }
+
+      const out = await readChunk(r.req, r.res, offset, t0, want)
+      if (out.buf.length) entry.winner = usedUrl
+      return out
+    } catch (e) {
+      lastErr = e
+      if (Date.now() - t0 >= CALL_WALL_MS) break   // 预算烧完,别再试下一个了
+    }
+  }
+  throw lastErr || new Error('音频下载失败,再试一次')
+}
+
+function readChunk(req, res, offset, t0, want) {
+  return new Promise((resolve, reject) => {
+    if (res.statusCode !== 206 && res.statusCode !== 200) {
+      res.resume()
+      return reject(new Error('音频服务器返回 ' + res.statusCode + ',这个链接可能过期了,重新解析一次'))
+    }
+    if (res.statusCode === 200 && offset > 0) {
+      // 服务器不支持 Range(从 0 重发):分块协议玩不转,给出明确出路
+      res.resume()
+      return reject(new Error('这个音频服务器不支持断点提取。可以在云开发控制台把 fetchMedia 超时调到 60 秒后重试'))
+    }
+
+    const totalBytes = parseInt(res.headers['content-range'] ? String(res.headers['content-range']).split('/')[1] || '0' : res.headers['content-length'] && res.statusCode === 200 ? res.headers['content-length'] : '0', 10) || 0
+    const chunks = []
+    let got = 0
+    let done = false
+
+    const finish = ok => {
+      if (done) return
+      done = true
+      if (ok) resolve({ buf: Buffer.concat(chunks), totalBytes, ended: res.complete && got < want })
+      else reject(new Error('音频传输中断,稍后重试'))
+    }
+    res.on('data', c => {
+      chunks.push(c)
+      got += c.length
+      // 墙钟预算:从本次调用开始算(含握手),到点就收手;数据预算与 TTFB 无关
+      if (!done && (Date.now() - t0 >= CALL_WALL_MS || got >= want)) {
+        req.destroy()          // 掐断连接,手里已读的字节照常返回
+        finish(true)
+      }
     })
-  } catch (e) { /* 同上 */ }
+    res.on('end', () => finish(true))
+    res.on('error', () => finish(chunks.length > 0))
+  })
 }
 
 // ---------- 入口 ----------
@@ -203,51 +298,40 @@ exports.main = async (event) => {
   if (!OPENID) return { ok: false, message: '请在微信里打开后再试' }
 
   const ref = event && event.ref
+  const offset = Math.max(0, parseInt((event && event.offset) || 0, 10) || 0)
   if (!ref || !HOST_ALLOWLIST[ref.platform]) {
+    return { ok: false, message: '提取信息不完整,重新解析一次' }
+  }
+  if (ref.platform === 'bilibili' && !ref.cid) {
+    return { ok: false, message: '提取信息不完整,重新解析一次' }
+  }
+  if (ref.platform !== 'bilibili' && !ref.url) {
     return { ok: false, message: '提取信息不完整,重新解析一次' }
   }
 
   try {
-    let candidates
-    let headers = { 'User-Agent': UA }
-    if (ref.platform === 'bilibili') {
-      if (!ref.cid) return { ok: false, message: '提取信息不完整,重新解析一次' }
-      const r = await biliAudioCandidates(ref)
-      candidates = r.candidates
-      headers = r.headers
-    } else {
-      if (!ref.url) return { ok: false, message: '提取信息不完整,重新解析一次' }
-      candidates = [ref.url]
+    const { buf, totalBytes, ended } = await extractChunk(ref, offset)
+    if (!buf || !buf.length) {
+      return { ok: true, retry: true, nextOffset: offset, totalBytes, ext: '', done: false, chunkB64: '' }
     }
-
-    // 逐个候选尝试:白名单 + 私网拦截 → 下载;PCDN 主链挂了自动换备链
-    let buf = null
-    let lastErr = null
-    for (const target of candidates) {
-      try {
-        await assertFetchable(target, ref.platform)
-        buf = (await downloadMedia(target, headers)).buf
-        break
-      } catch (e) {
-        lastErr = e
-      }
+    let ext = ''
+    if (offset === 0) {
+      ext = sniffExt(buf)
+      if (!ext) throw new Error('拿到的内容不是音频(平台接口可能变了),重新解析一次试试')
     }
-    if (!buf) {
-      throw lastErr || new Error('音频下载失败,再试一次')
+    const nextOffset = offset + buf.length
+    const done = ended || (totalBytes > 0 && nextOffset >= totalBytes)
+    return {
+      ok: true,
+      chunkB64: buf.toString('base64'),
+      nextOffset,
+      totalBytes,
+      ext,
+      done,
     }
-    const ext = sniffExt(buf)
-    if (!ext) throw new Error('拿到的内容不是音频(平台接口可能变了),重新解析一次试试')
-
-    const cloudPath = 'imports/' + OPENID + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + ext
-    const up = await cloud.uploadFile({ cloudPath, fileBuffer: buf })
-    if (!up || !up.fileID) throw new Error('音频转存失败,再试一次')
-
-    cleanupAndRecord(OPENID, up.fileID, ref.title)
-
-    return { ok: true, fileID: up.fileID, ext, sizeBytes: buf.length, title: ref.title || '' }
   } catch (e) {
     const msg = (e && e.message) || ''
-    if (/太长|太大|过期|重新解析|不是音频|失败|断|超时|连不上|不对|拿不到/.test(msg)) {
+    if (/太长|太大|过期|重新解析|不是音频|失败|断|超时|连不上|不对|拿不到|不支持断点/.test(msg)) {
       return { ok: false, message: msg }
     }
     console.warn('[fetchMedia] 未归类错误', (e && e.stack) || e)
@@ -256,4 +340,4 @@ exports.main = async (event) => {
 }
 
 // 本地联调测试用(云端不影响):直接 require 后调 _internal
-exports._internal = { wbiSign, biliAudioCandidates, sniffExt, downloadMedia, assertFetchable, MAX_BYTES }
+exports._internal = { wbiSign, biliAudioCandidates, sniffExt, extractChunk, assertFetchable, CALL_WALL_MS, MAX_CHUNK_BYTES }
