@@ -21,7 +21,7 @@
     <view class="hero-icon" bindtap="onHeroTap">🎵</view>
     <view class="hero-text">把音乐升高或降低\n唱歌跟着不费劲</view>
     <button class="btn-primary" bindtap="onChoose">从微信选音乐</button>
-    <button class="btn-plain" style="margin-top:16rpx;" bindtap="onLinkImport">贴链接导入（B站 / 唱吧 / 全民K歌）</button>
+    <button class="btn-plain" style="margin-top:16rpx;" bindtap="onLinkImport">贴链接导入（B站 / 抖音 / 视频号 / 唱吧 / K歌）</button>
   </view>
 
   <!-- 最近转过（本地历史，有记录才显示） -->

@@ -22,6 +22,8 @@ const crypto = require('crypto')
 const { URL } = require('url')
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
+// 抖音 App 客户端 UA:feed 接口与自家 CDN 都认这个形态
+const DOUYIN_CLIENT_UA = 'com.ss.android.ugc.aweme/290101 (Linux; U; Android 12; zh_CN; SM-G988N; Build/SP1A.210812.016; Cronet/TTNetVersion:d1da0ea9 2023-01-13 QuicVersion:51879282 2022-12-07)'
 const CALL_WALL_MS = 2600        // 单次调用总墙钟预算(函数超时 3s 的余量,超时被平台杀掉前自己收)
 const HEADER_TIMEOUT_MS = 1200   // 每个候选的握手/首字节限时:超时就换下一个,绝不在一个坏节点上耗尽预算
 const MAX_CHUNK_BYTES = 1536 * 1024
@@ -34,6 +36,8 @@ const HOST_ALLOWLIST = {
   bilibili: (h, u) =>
     /(^|\.)(bilivideo\.com|bilivideo\.cn|akamaized\.net)$/.test(h) ||
     !!(u && u.pathname && u.pathname.startsWith('/upgcxcode/')),
+  douyin: h => /(^|\.)(douyin\.com|douyinvod\.com|snssdk\.com|amemv\.com|zjcdn\.com|bytecdn\.cn|isnssdk\.com|toutiaocdn\.com|ixigua\.com)$/.test(h),
+  channels: h => /(^|\.)qq\.com$/.test(h),
   changba: h => /(^|\.)changba\.com$/.test(h) || /(^|\.)lncetimes\.com$/.test(h),
   kge: h => /(^|\.)qq\.com$/.test(h),
 }
@@ -192,7 +196,149 @@ function sortStableFirst(urls) {
 
 function cacheKeyFor(ref) {
   if (ref.platform === 'bilibili') return 'bilibili:' + (ref.bvid || ref.aid) + ':' + ref.cid
-  return ref.platform + ':' + ref.url
+  if (ref.platform === 'douyin') return 'douyin:' + ref.awemeId
+  return ref.platform + ':' + (ref.sphId || ref.url)
+}
+
+// ---------- 抖音:App 客户端 feed 接口(免登录免签名,客户端 UA 必需) ----------
+const DOUYIN_FEED_HOSTS = ['aweme.snssdk.com', 'aweme-hl.snssdk.com', 'api.amemv.com']
+
+async function douyinEntry(ref) {
+  const cacheKey = cacheKeyFor(ref)
+  const hit = urlCache.get(cacheKey)
+  if (hit && Date.now() - hit.ts < CACHE_TTL_MS) return hit
+
+  let item = null
+  const errors = []
+  for (const host of DOUYIN_FEED_HOSTS) {
+    try {
+      const res = await redirectGet('https://' + host + '/aweme/v1/feed/?aweme_id=' + ref.awemeId,
+        { 'User-Agent': DOUYIN_CLIENT_UA })
+      const j = JSON.parse(res.body.toString('utf8'))
+      const list = j.aweme_list || []
+      // 接口会附带相关推荐,必须按 aweme_id 精确匹配
+      item = list.find(a => String(a.aweme_id) === String(ref.awemeId)) || (list.length === 1 ? list[0] : null)
+      if (item) break
+    } catch (e) {
+      errors.push(host + ': ' + e.message)
+    }
+  }
+  if (!item) throw new Error('抖音作品信息拿不到(可能已删除或地区限制),重新解析一次试试')
+  if (Array.isArray(item.images) && item.images.length) {
+    throw new Error('这是图集作品,没有声音。换一个带画面带声音的视频试试')
+  }
+
+  const v = item.video || {}
+  const urls = []
+  if (v.play_addr) {
+    if (Array.isArray(v.play_addr.url_list)) urls.push(...v.play_addr.url_list)
+    if (v.play_addr.uri) urls.push('https://aweme.snssdk.com/aweme/v1/play/?video_id=' + v.play_addr.uri + '&ratio=720p&line=0')
+  }
+  if (v.download_addr && Array.isArray(v.download_addr.url_list)) urls.push(...v.download_addr.url_list)
+  const candidates = [...new Set(urls.filter(u => /^https?:\/\//.test(u)))]
+  if (!candidates.length) throw new Error('这个作品拿不到视频地址(可能是特殊格式)')
+
+  const entry = { candidates, headers: { 'User-Agent': DOUYIN_CLIENT_UA }, ts: Date.now(), winner: '' }
+  urlCache.set(cacheKey, entry)
+  if (urlCache.size > 200) urlCache.clear()
+  return entry
+}
+
+// ---------- 视频号:元宝换授权 token → finder-preview feed 直链(需 YUANBAO_COOKIE 环境变量) ----------
+function postJson(url, body, headers) {
+  return new Promise((resolve, reject) => {
+    const data = Buffer.from(JSON.stringify(body))
+    const req = https.request(url, {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json', 'Content-Length': data.length }, headers),
+      timeout: 10000,
+    }, res => {
+      const chunks = []
+      res.on('data', c => chunks.push(c))
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8')
+        let json = null
+        try { json = JSON.parse(text) } catch (e) { /* 非 JSON 保留 text */ }
+        resolve({ status: res.statusCode, text, json })
+      })
+    })
+    req.on('error', reject)
+    req.on('timeout', () => req.destroy(new Error('请求超时')))
+    req.write(data)
+    req.end()
+  })
+}
+
+function yuanbaoHeaders(cookie) {
+  return {
+    'Content-Type': 'application/json',
+    'Origin': 'https://yuanbao.tencent.com',
+    'Referer': 'https://yuanbao.tencent.com/',
+    'User-Agent': UA,
+    Cookie: cookie,
+    // 服务端校验的自定义头(参考 ltaoo/wx_channels_download / ga-ven 实现)
+    'x-agentid': 'naQivTmsDa/cf4d0079-ed1b-4c55-a3f3-2ca1379727d1',
+    'x-instance-id': '5',
+    'x-platform': 'mac',
+    'x-source': 'web',
+    'x-webversion': '2.69.0',
+    'x-webdriver': '0',
+  }
+}
+
+async function channelsEntry(ref) {
+  const cookie = process.env.YUANBAO_COOKIE || ''
+  if (!cookie) {
+    throw new Error('视频号解析还没配置:需在云函数 fetchMedia 的环境变量里设置 YUANBAO_COOKIE(获取步骤见交接文档)')
+  }
+  const cacheKey = cacheKeyFor(ref)
+  const hit = urlCache.get(cacheKey)
+  if (hit && Date.now() - hit.ts < CACHE_TTL_MS) return hit
+
+  // 1. 元宝:分享链接 → playable_url(token/eid);成功响应是 201
+  const yb = await postJson('https://yuanbao.tencent.com/api/weixin/get_parse_result',
+    { type: 'video_channel_url', url: ref.url, scene: 1 },
+    yuanbaoHeaders(cookie))
+  if (yb.status === 401) {
+    throw new Error('视频号解析的元宝 Cookie 失效了:去云开发控制台更新 fetchMedia 的 YUANBAO_COOKIE 环境变量')
+  }
+  if (yb.status < 200 || yb.status >= 300) {
+    throw new Error('视频号解析服务没响应(' + yb.status + '),稍后再试')
+  }
+  const yd = (yb.json && yb.json.data) || {}
+  const playable = yd.playable_url || ''
+  const exportId = yd.wx_export_id || ''
+  if (!playable || !exportId) throw new Error('这个视频号作品解析不出来(可能已删除或受限)')
+  let token = ''
+  try { token = new URL(playable).searchParams.get('token') || '' } catch (e) { /* */ }
+  if (!token) throw new Error('视频号解析返回不完整,稍后再试')
+
+  // 2. 视频号 feed:token/eid 要同时出现在 Referer 里,缺了拿不到媒体地址
+  const rid = Date.now().toString(16) + Math.random().toString(16).slice(2, 10)
+  const feedUrl = 'https://channels.weixin.qq.com/finder-preview/api/feed/get_feed_info?_rid=' + rid +
+    '&_pageUrl=' + encodeURIComponent('https://channels.weixin.qq.com/finder-preview/pages/feed')
+  const referer = 'https://channels.weixin.qq.com/finder-preview/pages/feed' +
+    '?entry_card_type=48&comment_scene=39&appid=0&entry_scene=0' +
+    '&token=' + encodeURIComponent(token) + '&eid=' + encodeURIComponent(exportId)
+  const fr = await postJson(feedUrl,
+    { baseReq: { generalToken: token }, exportId },
+    { 'Content-Type': 'application/json', 'Origin': 'https://channels.weixin.qq.com', 'Referer': referer, 'User-Agent': UA })
+  if (fr.status < 200 || fr.status >= 300) throw new Error('视频号作品信息拿不到(' + fr.status + '),稍后再试')
+  const fj = fr.json || {}
+  if (fj.errCode !== undefined && fj.errCode !== 0) {
+    throw new Error('这个视频号作品打不开(' + (fj.errMsg || '内容受限') + ')')
+  }
+  const fi = (fj.data && fj.data.feedInfo) || {}
+  const candidates = [
+    fi.h264VideoInfo && fi.h264VideoInfo.videoUrl,
+    fi.h265VideoInfo && fi.h265VideoInfo.videoUrl,
+  ].filter(Boolean)
+  if (!candidates.length) throw new Error('这是图文作品或直播回放,没有可提取的视频声音')
+
+  const entry = { candidates, headers: { 'User-Agent': UA }, ts: Date.now(), winner: '' }
+  urlCache.set(cacheKey, entry)
+  if (urlCache.size > 200) urlCache.clear()
+  return entry
 }
 
 // ---------- 嗅探:必须真的是音频 ----------
@@ -208,6 +354,8 @@ function sniffExt(buf) {
 // ---------- 单块提取:Range 断点读一段 ----------
 function entryFor(ref) {
   if (ref.platform === 'bilibili') return biliAudioCandidates(ref)
+  if (ref.platform === 'douyin') return douyinEntry(ref)
+  if (ref.platform === 'channels') return channelsEntry(ref)
   const k = cacheKeyFor(ref)
   let entry = urlCache.get(k)
   if (!entry) {
@@ -305,7 +453,10 @@ exports.main = async (event) => {
   if (ref.platform === 'bilibili' && !ref.cid) {
     return { ok: false, message: '提取信息不完整,重新解析一次' }
   }
-  if (ref.platform !== 'bilibili' && !ref.url) {
+  if (ref.platform === 'douyin' && !ref.awemeId) {
+    return { ok: false, message: '提取信息不完整,重新解析一次' }
+  }
+  if ((ref.platform === 'changba' || ref.platform === 'kge' || ref.platform === 'channels') && !ref.url) {
     return { ok: false, message: '提取信息不完整,重新解析一次' }
   }
 
@@ -331,7 +482,7 @@ exports.main = async (event) => {
     }
   } catch (e) {
     const msg = (e && e.message) || ''
-    if (/太长|太大|过期|重新解析|不是音频|失败|断|超时|连不上|不对|拿不到|不支持断点/.test(msg)) {
+    if (/太长|太大|过期|重新解析|不是音频|失败|断|超时|连不上|不对|拿不到|不支持断点|Cookie|视频号|图集|没有声音|图文|受限|删除|特殊格式|解析不出来/.test(msg)) {
       return { ok: false, message: msg }
     }
     console.warn('[fetchMedia] 未归类错误', (e && e.stack) || e)

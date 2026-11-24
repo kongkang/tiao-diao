@@ -8,7 +8,7 @@
       <textarea
         class="url-box"
         value="{{urlText}}"
-        placeholder="在B站/唱吧/K歌里点「分享 → 复制链接」,把复制的文字粘到这里"
+        placeholder="在 App 里点「分享 → 复制链接」,把复制的文字整段粘到这里\n支持 B站 / 抖音 / 视频号 / 唱吧 / 全民K歌"
         placeholder-class="url-ph"
         maxlength="2000"
         auto-height
