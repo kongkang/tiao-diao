@@ -17,3 +17,7 @@ node_modules/
 # 口播推荐视频本地素材(大文件,只留本地)
 tools/promo/
 tools/promo2/
+
+# 元宝 Cookie 与探针日志(绝不提交)
+tools/yuanbao-cookie.txt
+tools/yuanbao-cookie-probe.log
