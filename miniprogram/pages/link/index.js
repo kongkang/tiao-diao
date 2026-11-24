@@ -68,14 +68,18 @@ page({
     const p = this.data.parsed
     if (!p || this.data.importing) return
     this.setData({ importing: true })
-    wx.showLoading({ title: '正在提取音频', mask: true })
+    wx.showLoading({ title: '正在提取音频…', mask: true })
     try {
-      const r = await linkimport.fetchAudio(p.ref)
-      const dl = await linkimport.downloadToTemp(r.fileID)
+      const r = await linkimport.fetchAudioToFile(p.ref, pr => {
+        const title = pr.totalBytes > 0
+          ? '正在提取音频 ' + Math.min(99, Math.round((pr.bytes / pr.totalBytes) * 100)) + '%'
+          : '已提取 ' + Math.round(pr.bytes / 1024) + 'KB'
+        wx.showLoading({ title, mask: true })
+      })
       wx.hideLoading()
       this.setData({ importing: false })
       // 真正的时长/格式以本地解码为准,后面的计费口径和本地选歌完全一致
-      const song = await audioSvc.importSongFromPath(dl.tempFilePath, p.title, r.sizeBytes)
+      const song = await audioSvc.importSongFromPath(r.path, p.title, r.sizeBytes)
       session.setSong(song)
       wx.navigateTo({ url: '/pages/pitch/index' })
     } catch (e) {
