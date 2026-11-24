@@ -3,11 +3,15 @@
 // 输出:{ ok, platform, platformName, title, cover, durationSec, ref }
 //   ref 是给 fetchMedia 的 opaque 引用,原样传回即可;本函数不做任何媒体下载。
 //
-// 支持平台(M1,与调研结论一致,详见 docs/handoff/handoff-2026-11-23-link-import.md):
+// 支持平台(2026-11-24,详见 docs/handoff/handoff-2026-11-23-link-import.md):
 //   bilibili  官方 API:view → cid/标题/封面/时长(免登录)
+//   douyin    短链 302 → 作品号 → App 客户端 feed 接口(客户端 UA,免登录免签名)
+//   channels  视频号短链 weixin.qq.com/sph/…(媒体提取在 fetchMedia,需元宝 Cookie)
 //   changba   网页播放页里直接暴露 mp3/m4a 直链(正则提取)
 //   kge       分享页提取作品号,页面 JSON 里拿 playurl(接口常变,尽力而为)
-// 抖音/快手/小红书/视频号:明确告知不支持 + 可执行的替代办法,不甩一句"失败"了事
+//   快手/小红书等:明确告知不支持 + 可执行的替代办法,不甩一句"失败"了事
+// 链接提取:带协议 URL(尾部标点自动去)、无协议的已知平台域名、裸 BV/av 号,
+//   提到平台但没链接时给针对性指路
 
 const cloud = require('wx-server-sdk')
 
@@ -19,6 +23,9 @@ const dns = require('dns').promises
 const { URL } = require('url')
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
+const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+// 抖音 App 客户端 UA:aweme/v1/feed 接口只认这个形态,浏览器 UA 只回几十字节空壳
+const DOUYIN_CLIENT_UA = 'com.ss.android.ugc.aweme/290101 (Linux; U; Android 12; zh_CN; SM-G988N; Build/SP1A.210812.016; Cronet/TTNetVersion:d1da0ea9 2023-01-13 QuicVersion:51879282 2022-12-07)'
 const REQ_TIMEOUT_MS = 12000
 
 // ---------- 简易限频(单实例内存级,防一个号疯狂刷解析;多实例时会放大,可接受) ----------
@@ -101,32 +108,54 @@ function byHost(host) {
   if (h === 'b23.tv' || h === 'bilibili.com' || h.endsWith('.bilibili.com')) return 'bilibili'
   if (h === 'changba.com' || h.endsWith('.changba.com')) return 'changba'
   if (/^(node\.)?kg\d*\.qq\.com$/.test(h)) return 'kge'
-  if (h.endsWith('douyin.com') || h.endsWith('iesdouyin.com')) return 'douyin'
+  if (h === 'douyin.com' || h.endsWith('.douyin.com') || h.endsWith('.iesdouyin.com') || h === 'iesdouyin.com') return 'douyin'
+  if (h === 'weixin.qq.com' || h.endsWith('channels.weixin.qq.com')) return 'channels'
   if (h.endsWith('kuaishou.com')) return 'kuaishou'
   if (h.endsWith('xiaohongshu.com') || h.endsWith('xhslink.com')) return 'xhs'
-  if (h.endsWith('channels.weixin.qq.com')) return 'channels'
   return 'unknown'
 }
 
 const UNSUPPORTED_TEXT = {
-  douyin: '抖音的解析要专门的签名服务,这个版本还没接。可以先把视频下载好,从微信发给自己再导入',
-  kuaishou: '暂时还不支持快手,先支持了 B站 / 唱吧 / 全民K歌',
-  xhs: '小红书暂不支持,先支持了 B站 / 唱吧 / 全民K歌',
-  channels: '视频号的链接没有公开的解析办法,这个版本先不支持',
-  unknown: '这个平台暂时不支持。先支持了 B站 / 唱吧 / 全民K歌',
+  kuaishou: '暂时还不支持快手,先支持了 B站 / 抖音 / 视频号 / 唱吧 / 全民K歌',
+  xhs: '小红书暂不支持,先支持了 B站 / 抖音 / 视频号 / 唱吧 / 全民K歌',
+  unknown: '这个平台暂时不支持。先支持了 B站 / 抖音 / 视频号 / 唱吧 / 全民K歌',
 }
 
+// 从分享文案里抠有效链接:支持 http(s) 带协议、无协议的已知平台域名,尾部标点自动去掉
+const KNOWN_HOST_RE = '(?:b23\\.tv|(?:www\\.)?bilibili\\.com|(?:v|www|m)\\.douyin\\.com|www\\.iesdouyin\\.com|(?:www\\.)?changba\\.com|(?:node\\.)?kg\\d*\\.qq\\.com|channels\\.weixin\\.qq\\.com|weixin\\.qq\\.com\\/sph)'
+const URL_STOP = '[^\\s"\'<>【】,，。、;；!！?？()（）「」『』]+'
+const TAIL_PUNCT = /[.,;:!?,、。]+$/
+
 function detect(text) {
-  const m = String(text).match(/https?:\/\/[^\s"'<>()【】,，]+/i)
-  if (!m) {
-    // 只粘了 BV 号也算数
-    const bv = String(text).match(/\bBV[0-9A-Za-z]{10}\b/)
-    if (bv) return { platform: 'bilibili', url: 'https://www.bilibili.com/video/' + bv[0] }
-    return null
+  const s = String(text)
+
+  // 1. 带协议的 URL(到空白/中文标点为止,去掉尾部标点)
+  let url = ''
+  const m = s.match(new RegExp('https?:\\/\\/' + URL_STOP, 'i'))
+  if (m) url = m[0].replace(TAIL_PUNCT, '')
+
+  // 2. 没带协议:已知的平台域名裸写也算数(v.douyin.com/xxx、weixin.qq.com/sph/xxx 等)
+  if (!url) {
+    const m2 = s.match(new RegExp(KNOWN_HOST_RE + '\\/' + URL_STOP, 'i'))
+    if (m2) url = 'https://' + m2[0].replace(TAIL_PUNCT, '')
   }
-  let host = ''
-  try { host = new URL(m[0]).hostname } catch (e) { return null }
-  return { platform: byHost(host), url: m[0] }
+
+  if (url) {
+    let host = ''
+    try { host = new URL(url).hostname } catch (e) { url = '' }
+    if (url) return { platform: byHost(host), url }
+  }
+
+  // 3. 裸代码:B站 BV / av(抖音作品号是纯数字,裸形态没有平台签名,不做路由)
+  const bv = s.match(/\bBV[0-9A-Za-z]{10}\b/)
+  if (bv) return { platform: 'bilibili', url: 'https://www.bilibili.com/video/' + bv[0] }
+  const av = s.match(/\bav(\d{6,})\b/i)
+  if (av) return { platform: 'bilibili', url: 'https://www.bilibili.com/video/av' + av[1] }
+
+  // 4. 提到平台但没抠出链接 → 针对性指路(别甩一句"没认出"完事)
+  if (/抖音|douyin/i.test(s)) return { platform: 'douyin-noguide', url: '' }
+  if (/视频号/.test(s)) return { platform: 'channels-noguide', url: '' }
+  return null
 }
 
 // ---------- bilibili ----------
@@ -217,6 +246,53 @@ async function resolveKge(rawUrl) {
   }
 }
 
+// ---------- 抖音 ----------
+async function resolveDouyin(rawUrl) {
+  // 1. URL 里直接带作品号:/video/、/note/、/slides/ 路径或 item_ids 参数
+  let m = rawUrl.match(/\/(?:video|note|slides)\/(\d{6,})/) || rawUrl.match(/[?&]item_ids=(\d{6,})/)
+  let awemeId = m ? m[1] : ''
+  // 2. 短链跟随(v.douyin.com → iesdouyin.com/share/video/…),最终 URL 或页面里找 id
+  if (!awemeId) {
+    const r = await request(rawUrl, { headers: { 'User-Agent': MOBILE_UA }, maxRedirects: 4 })
+    const hay = [r.finalUrl, r.body.toString('utf8').slice(0, 500 * 1024)]
+    for (const h of hay) {
+      m = h.match(/\/(?:video|note|slides)\/(\d{6,})/) || h.match(/[?&]item_ids=(\d{6,})/) || h.match(/"aweme_id"\s*:\s*"(\d{6,})"/)
+      if (m) { awemeId = m[1]; break }
+    }
+  }
+  if (!awemeId) throw new Error('链接能打开,但里面没认出作品编号。作品可能已删除或转私密,重新「复制链接」再试试')
+
+  // 3. App Feed 接口拿标题/时长(必须客户端 UA;失败不阻塞,fetchMedia 会再拿)
+  let item = null
+  try {
+    const res = await request('https://aweme.snssdk.com/aweme/v1/feed/?aweme_id=' + awemeId, { headers: { 'User-Agent': DOUYIN_CLIENT_UA } })
+    const j = JSON.parse(res.body.toString('utf8'))
+    const list = j.aweme_list || []
+    item = list.find(a => String(a.aweme_id) === String(awemeId)) || (list.length === 1 ? list[0] : null)
+  } catch (e) { /* 元信息拿不到就先给占位标题 */ }
+  if (item && Array.isArray(item.images) && item.images.length) {
+    throw new Error('这是图集作品,没有声音。换一个带画面带声音的视频试试')
+  }
+  return {
+    platform: 'douyin', platformName: '抖音',
+    title: String((item && item.desc) || '抖音视频').slice(0, 60) || '抖音视频',
+    cover: (item && item.video && item.video.cover && item.video.cover.url_list && item.video.cover.url_list[0]) || '',
+    durationSec: (item && item.video && item.video.duration ? Math.round(item.video.duration / 1000) : 0) || 0,
+    ref: { platform: 'douyin', awemeId: String(awemeId), title: String((item && item.desc) || '').slice(0, 60) },
+  }
+}
+
+// ---------- 视频号(短链 weixin.qq.com/sph/…;媒体提取需元宝 Cookie,在 fetchMedia 里) ----------
+async function resolveChannels(rawUrl) {
+  const m = rawUrl.match(/sph\/([A-Za-z0-9]{6,})/)
+  if (!m) throw new Error('视频号要用「分享 → 复制链接」得到的短链接(形如 weixin.qq.com/sph/…),网页版长链接认不了')
+  return {
+    platform: 'channels', platformName: '视频号',
+    title: '视频号作品', cover: '', durationSec: 0,
+    ref: { platform: 'channels', url: 'https://weixin.qq.com/sph/' + m[1], sphId: m[1] },
+  }
+}
+
 // ---------- 入口 ----------
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext()
@@ -230,14 +306,22 @@ exports.main = async (event) => {
   try {
     const t = detect(text)
     if (!t) return { ok: false, message: '没认出链接。把分享时复制的整段文字粘进来就行,不用自己删字' }
+    if (t.platform === 'douyin-noguide') {
+      return { ok: false, message: '没认出抖音链接:在抖音里点「分享 → 复制链接」,把复制的整段文字粘进来(只发口令不行)' }
+    }
+    if (t.platform === 'channels-noguide') {
+      return { ok: false, message: '没认出视频号链接:点作品「分享 → 复制链接」,把复制的整段文字粘进来' }
+    }
     if (t.platform === 'bilibili') return Object.assign({ ok: true }, await resolveBilibili(t.url))
+    if (t.platform === 'douyin') return Object.assign({ ok: true }, await resolveDouyin(t.url))
+    if (t.platform === 'channels') return Object.assign({ ok: true }, await resolveChannels(t.url))
     if (t.platform === 'changba') return Object.assign({ ok: true }, await resolveChangba(t.url))
     if (t.platform === 'kge') return Object.assign({ ok: true }, await resolveKge(t.url))
     return { ok: false, message: UNSUPPORTED_TEXT[t.platform] || UNSUPPORTED_TEXT.unknown }
   } catch (e) {
     // 自己抛的错文案已可读,直接透传;其余按网络问题转人话
     const msg = (e && e.message) || ''
-    if (/解析不了|打不开|认出|删除|私密|接口|链接|粘贴|粘进来|下载好/.test(msg)) {
+    if (/解析不了|打不开|认出|删除|私密|接口|链接|粘贴|粘进来|下载好|没有声音|图集|短链接/.test(msg)) {
       return { ok: false, message: msg }
     }
     console.warn('[parseMedia] 未归类错误', (e && e.stack) || e)
