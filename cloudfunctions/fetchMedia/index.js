@@ -24,7 +24,9 @@ const { URL } = require('url')
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
 // 抖音 App 客户端 UA:feed 接口与自家 CDN 都认这个形态
 const DOUYIN_CLIENT_UA = 'com.ss.android.ugc.aweme/290101 (Linux; U; Android 12; zh_CN; SM-G988N; Build/SP1A.210812.016; Cronet/TTNetVersion:d1da0ea9 2023-01-13 QuicVersion:51879282 2022-12-07)'
-const CALL_WALL_MS = 2600        // 单次调用总墙钟预算(函数超时 3s 的余量,超时被平台杀掉前自己收)
+// 单次调用总墙钟预算:默认 2600ms(适配函数超时 3s);控制台把超时调大后,
+// 可设环境变量 FETCH_WALL_MS(如 9000)放大预算,视频号等慢解析会更稳
+const CALL_WALL_MS = Math.min(15000, Math.max(2000, parseInt(process.env.FETCH_WALL_MS || '2600', 10) || 2600))
 const HEADER_TIMEOUT_MS = 1200   // 每个候选的握手/首字节限时:超时就换下一个,绝不在一个坏节点上耗尽预算
 const MAX_CHUNK_BYTES = 1536 * 1024
 const CACHE_TTL_MS = 10 * 60 * 1000
@@ -245,13 +247,13 @@ async function douyinEntry(ref) {
 }
 
 // ---------- 视频号:元宝换授权 token → finder-preview feed 直链(需 YUANBAO_COOKIE 环境变量) ----------
-function postJson(url, body, headers) {
+function postJson(url, body, headers, timeoutMs) {
   return new Promise((resolve, reject) => {
     const data = Buffer.from(JSON.stringify(body))
     const req = https.request(url, {
       method: 'POST',
       headers: Object.assign({ 'Content-Type': 'application/json', 'Content-Length': data.length }, headers),
-      timeout: 10000,
+      timeout: timeoutMs || 10000,
     }, res => {
       const chunks = []
       res.on('data', c => chunks.push(c))
@@ -286,19 +288,62 @@ function yuanbaoHeaders(cookie) {
   }
 }
 
+// ---------- 视频号:双路取直链 ----------
+// 路径 1(主):mtotech 公共解析接口(免配置;实测延迟 1.7~5s,3s 函数超时下偶发超时,靠客户端断点重试兜住)
+// 路径 2(备):元宝 Cookie 换授权 token(配置了 YUANBAO_COOKIE 才启用;云上到腾讯内网快且稳)
 async function channelsEntry(ref) {
-  const cookie = process.env.YUANBAO_COOKIE || ''
-  if (!cookie) {
-    throw new Error('视频号解析还没配置:需在云函数 fetchMedia 的环境变量里设置 YUANBAO_COOKIE(获取步骤见交接文档)')
-  }
   const cacheKey = cacheKeyFor(ref)
   const hit = urlCache.get(cacheKey)
   if (hit && Date.now() - hit.ts < CACHE_TTL_MS) return hit
 
+  const cookie = process.env.YUANBAO_COOKIE || ''
+  const errors = []
+  if (cookie) {
+    try {
+      return await channelsEntryViaYuanbao(ref, cookie, cacheKey)
+    } catch (e) {
+      errors.push(e.message)
+    }
+  }
+  try {
+    return await channelsEntryViaMtotech(ref, cacheKey)
+  } catch (e) {
+    errors.push(e.message)
+  }
+  const msg = errors[0] || '视频号解析失败,稍后再试'
+  throw new Error(/Cookie/.test(msg) ? msg + ';或稍后再试(自动走公共解析通道)' : msg)
+}
+
+async function channelsEntryViaMtotech(ref, cacheKey) {
+  // 预算:墙钟内留 400ms 余量;超时就让客户端重试(下一块/下一次调用往往更快)
+  const budget = Math.max(1800, CALL_WALL_MS - 400)
+  const res = await postJson('https://v.mtotech.com/api/resolve',
+    { url: ref.url },
+    { 'Content-Type': 'application/json', 'User-Agent': UA },
+    budget)
+  if (res.status !== 200) {
+    if (res.status === 429) throw new Error('视频号解析公共通道限流了,稍等几秒再试')
+    throw new Error('视频号解析服务没响应(' + res.status + '),稍后再试')
+  }
+  const j = res.json
+  if (j && j.error) {
+    if (/invalid/i.test(j.error)) throw new Error('这个视频号作品打不开(链接无效或已删除)')
+    throw new Error('视频号解析失败(' + String(j.error).slice(0, 40) + ')')
+  }
+  const d = (j && j.data) || {}
+  const candidates = [d.h264_url, d.h265_url].filter(Boolean)
+  if (!candidates.length) throw new Error('这是图文作品或直播回放,没有可提取的视频声音')
+  const entry = { candidates, headers: { 'User-Agent': UA }, ts: Date.now(), winner: '' }
+  urlCache.set(cacheKey, entry)
+  if (urlCache.size > 200) urlCache.clear()
+  return entry
+}
+
+async function channelsEntryViaYuanbao(ref, cookie, cacheKey) {
   // 1. 元宝:分享链接 → playable_url(token/eid);成功响应是 201
   const yb = await postJson('https://yuanbao.tencent.com/api/weixin/get_parse_result',
     { type: 'video_channel_url', url: ref.url, scene: 1 },
-    yuanbaoHeaders(cookie))
+    yuanbaoHeaders(cookie), 8000)
   if (yb.status === 401) {
     throw new Error('视频号解析的元宝 Cookie 失效了:去云开发控制台更新 fetchMedia 的 YUANBAO_COOKIE 环境变量')
   }
@@ -322,7 +367,7 @@ async function channelsEntry(ref) {
     '&token=' + encodeURIComponent(token) + '&eid=' + encodeURIComponent(exportId)
   const fr = await postJson(feedUrl,
     { baseReq: { generalToken: token }, exportId },
-    { 'Content-Type': 'application/json', 'Origin': 'https://channels.weixin.qq.com', 'Referer': referer, 'User-Agent': UA })
+    { 'Content-Type': 'application/json', 'Origin': 'https://channels.weixin.qq.com', 'Referer': referer, 'User-Agent': UA }, 8000)
   if (fr.status < 200 || fr.status >= 300) throw new Error('视频号作品信息拿不到(' + fr.status + '),稍后再试')
   const fj = fr.json || {}
   if (fj.errCode !== undefined && fj.errCode !== 0) {
@@ -482,7 +527,7 @@ exports.main = async (event) => {
     }
   } catch (e) {
     const msg = (e && e.message) || ''
-    if (/太长|太大|过期|重新解析|不是音频|失败|断|超时|连不上|不对|拿不到|不支持断点|Cookie|视频号|图集|没有声音|图文|受限|删除|特殊格式|解析不出来/.test(msg)) {
+    if (/太长|太大|过期|重新解析|不是音频|失败|断|超时|连不上|不对|拿不到|不支持断点|Cookie|视频号|图集|没有声音|图文|受限|删除|特殊格式|解析不出来|限流|解析服务/.test(msg)) {
       return { ok: false, message: msg }
     }
     console.warn('[fetchMedia] 未归类错误', (e && e.stack) || e)

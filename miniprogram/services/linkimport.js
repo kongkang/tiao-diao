@@ -85,8 +85,8 @@ async function fetchAudioToFile(ref, onProgress) {
       r = await cloud.call('fetchMedia', { ref, offset })
       callErrors = 0
     } catch (e) {
-      // 云调用偶发失败(冷启动/网络抖动):同断点自动重试,进度不丢
-      if (++callErrors >= 3) throw new Error('提取中断了(网络不稳),点「再试一次」会从断点继续')
+      // 云调用偶发失败(冷启动/网络抖动/视频号慢解析被 3s 超时杀):同断点自动重试,进度不丢
+      if (++callErrors >= 5) throw new Error('提取中断了(网络不稳),点「再试一次」会从断点继续')
       await sleep(400)
       continue
     }

@@ -51,25 +51,25 @@
 |---|---|---|
 | B站 | ✅ 已实测 | view API + wbi 签名 playurl(免登录) |
 | 抖音 | ✅ 已实测(2026-11-24) | v.douyin.com 短链 302 → 作品号 → App 客户端 feed 接口 `aweme.snssdk.com/aweme/v1/feed/`(客户端 UA,免登录免签名)→ 无水印 mp4(端内 ffmpeg WASM 解出音轨) |
-| 视频号 | ⚙️ 代码就绪,**需配置元宝 Cookie** | `weixin.qq.com/sph/` 链接 → 腾讯元宝 `get_parse_result` 换授权 token → 视频号 `finder-preview/get_feed_info` → 无加密直链 MP4 |
+| 视频号 | ✅ 免配置可用(mtotech 公共通道,2026-11-24 实测) | 双路:①mtotech `POST /api/resolve`(免密钥,实测延迟 1.7~5s,3s 函数超时下偶发超时→客户端断点重试兜住)②可选升级:配置元宝 Cookie(YUANBAO_COOKIE)后优先走元宝授权链路(快且稳) |
 | 唱吧 | ⚠️ 尽力而为未实测 | 播放页正则提取 mp3 直链 |
 | 全民K歌 | ⚠️ 尽力而为未实测 | 分享页正则提取 playurl |
 | 快手/小红书 | ❌ 不支持 | 人话提示 |
 
 **链接/分享码提取**(2026-11-24 强化):带协议 URL(尾部中文标点自动掐掉)、**无协议的已知平台域名**(如 `v.douyin.com/xxx`、`weixin.qq.com/sph/xxx` 裸写)、裸 BV/av 号、抖音口令文案(口令里夹短链可识别);只发口令/纯文字时给针对性指路。
 
-## 视频号上线配置(可选,不配则该平台给人话提示,其他平台不受影响)
+## 视频号:双路解析与 Cookie 有效期实测(2026-11-24)
 
-视频号没有公开解析 API,当前唯一可行的服务端路径是**借腾讯元宝的授权**(参考 ltaoo/wx_channels_download 与 ga-ven/douyin-wx-video-download 的实现):
+**免配置即用**:视频号主路走 mtotech 公共解析(`POST https://v.mtotech.com/api/resolve`,文档化公开接口,无需密钥,对方维护会话)。实测 1.17MB 作品成功提取。代价:该接口延迟波动 1.7~5s,在函数 3s 默认超时下**部分调用会被平台掐断**,客户端已做断点自动重试(同 offset,进度不丢),整体成功率靠重试堆出来。
 
-1. 用你自己的账号登录 [yuanbao.tencent.com](https://yuanbao.tencent.com)(微信扫码即可)
-2. 浏览器 F12 → Network(或 Application→Cookies)→ 复制**完整 Cookie 字符串**
-3. 云开发控制台 → 云函数 → `fetchMedia` → 函数配置 → 环境变量 → 新增:
-   - key: `YUANBAO_COOKIE`
-   - value: <粘贴整段 Cookie>
-4. 保存后函数自动生效(不用重新部署代码)
+**两条增强(都可选)**:
+1. **提高超时墙**:云开发控制台 → fetchMedia → 函数配置 → 超时调到 **10 秒**,同时加环境变量 `FETCH_WALL_MS=9000` → 视频号解析不再被掐,一次调用完成(其他平台分块也会变大、更快)。
+2. **自持 Cookie(元宝路)**:登录 [yuanbao.tencent.com](https://yuanbao.tencent.com) → F12 复制完整 Cookie → 控制台给 fetchMedia 加环境变量 `YUANBAO_COOKIE`。配置后视频号**优先走元宝授权链路**(云上到腾讯内网,亚秒级,3s 超时下也稳),mtotech 自动降为备用。⚠️ 元宝接口非官方 API,Cookie 会过期、有账号风控风险。
 
-⚠️ 风险与维护须知:元宝接口**非官方公开 API**,Cookie 会过期(过期后用户侧收到「Cookie 失效,去控制台更新」的人话提示,重复上面步骤即可);自动化访问有账号风控风险,请用自己可接受的账号评估。
+**Cookie 有效期实测(谁来测)**:
+- 已内置探针:`node tools/yuanbao-cookie-probe.js`——读 `tools/yuanbao-cookie.txt`(已 gitignore,把复制的 Cookie 原样放进去即可),POST 元宝接口判定 2xx=有效 / 401=失效,结果追加到 `tools/yuanbao-cookie-probe.log`(带"放入文件起第几天")。
+- 已挂**每日定时探针**(自动跑),日志会积累出真实的过期天数;哪天翻成 INVALID 就是确切寿命。
+- 社区现状(ltaoo/wx_channels_download issue #508 等):**服务端解析视频号,元宝 Cookie 就是当前通用做法**,没有公开的免凭据方案;唯一免 Cookie 的路线是桌面端嗅探/注入(res-downloader、wx_channels_download),不适用小程序后端。知乎有案例提醒:同 Cookie 历史链接能解、新链接失败 ≠ Cookie 过期,可能是作者限制了站外解析。
 
 ## 已知限制与风险
 
