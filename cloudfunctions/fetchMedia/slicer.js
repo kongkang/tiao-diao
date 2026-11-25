@@ -19,7 +19,8 @@ const HEAD_BYTES = 256 * 1024
 const MAX_MOOV_BYTES = 16 * 1024 * 1024
 const WIN_BEFORE = 768 * 1024   // 找分片边界:估算位置之前读这么多
 const WIN_AFTER = 384 * 1024    // 之后读这么多
-const SPAN_BYTES = 16 * 1024 * 1024   // 一批最多顺序读多少源文件(音频占比约 10% → 出 1.5MB 成品)
+const SPAN_BYTES = 16 * 1024 * 1024       // 一批最多顺序读多少源文件(音频占比约 10% → 出 1.5MB 成品)
+const MIN_SPAN_BYTES = 256 * 1024          // 源很慢时一批最小读多少(再小就没法保证有进展了)
 
 /** 整文件直传的计划:没有文件头,整个文件就是一段 */
 function plainPlan(fileSize, meta) {
@@ -221,7 +222,8 @@ async function readPlanChunk(plan, io, offset, maxBytes, deadline) {
   }
   const base = plan.header.length
   while (offset + have < end && Date.now() < deadline - 30) {
-    const batch = takeBatch(plan, offset + have - base, end - offset - have, plan.spanBytes || SPAN_BYTES)
+    const span = plan.spanBytes || SPAN_BYTES
+    const batch = takeBatch(plan, offset + have - base, end - offset - have, span)
     if (!batch) break
     const got = await io.readSpan(batch.src, batch.srcEnd)
     let produced = 0
@@ -233,9 +235,10 @@ async function readPlanChunk(plan, io, offset, maxBytes, deadline) {
     have += produced
     if (produced < batch.out) {
       // 没凑齐:预算用完或网络慢。下一批读小一点,保证每次都有进展
-      if (!got.complete) plan.spanBytes = Math.max(256 * 1024, Math.floor((plan.spanBytes || SPAN_BYTES) / 4))
+      if (!got.complete) plan.spanBytes = Math.max(MIN_SPAN_BYTES, Math.floor(span / 2))
       break
     }
+    if (span < SPAN_BYTES) plan.spanBytes = Math.min(SPAN_BYTES, span * 2)   // 读顺了就放大回去
   }
   return { buf: Buffer.concat(parts), nextOffset: offset + have, done: offset + have >= plan.totalBytes, produced: have }
 }

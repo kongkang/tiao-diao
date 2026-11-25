@@ -193,7 +193,7 @@ async function resolveBilibili(rawUrl) {
     title: title.slice(0, 60),
     cover: String(d.pic || '').replace(/^http:/, 'https:'),
     durationSec: (page && page.duration) || d.duration || 0,
-    ref: { platform: 'bilibili', bvid: bvid || '', aid: aid || '', cid, title },
+    ref: { platform: 'bilibili', bvid: bvid || '', aid: aid || '', cid, title, durationSec: (page && page.duration) || d.duration || 0 },
   }
 }
 
@@ -278,8 +278,23 @@ async function resolveDouyin(rawUrl) {
     title: String((item && item.desc) || '抖音视频').slice(0, 60) || '抖音视频',
     cover: (item && item.video && item.video.cover && item.video.cover.url_list && item.video.cover.url_list[0]) || '',
     durationSec: (item && item.video && item.video.duration ? Math.round(item.video.duration / 1000) : 0) || 0,
-    ref: { platform: 'douyin', awemeId: String(awemeId), title: String((item && item.desc) || '').slice(0, 60) },
+    // 解析时已经拿到播放直链,一并带给提取环节:省掉一次冷启动接口调用(首次调用不必白等一轮)
+    ref: {
+      platform: 'douyin', awemeId: String(awemeId),
+      title: String((item && item.desc) || '').slice(0, 60),
+      durationSec: item && item.video && item.video.duration ? Math.round(item.video.duration / 1000) : 0,
+      urls: douyinPlayUrls(item && item.video),
+    },
   }
+}
+
+/** 抖音播放直链:play_addr 里的几条 + snssdk 播放接口(会跳转到 CDN,域名更稳) */
+function douyinPlayUrls(video) {
+  const out = []
+  const addr = video && video.play_addr
+  if (addr && Array.isArray(addr.url_list)) out.push(...addr.url_list)
+  if (addr && addr.uri) out.push('https://aweme.snssdk.com/aweme/v1/play/?video_id=' + addr.uri + '&ratio=720p&line=0')
+  return out.filter(u => /^https?:\/\//.test(u)).slice(0, 4)
 }
 
 // ---------- 视频号(短链 weixin.qq.com/sph/…;媒体提取需元宝 Cookie,在 fetchMedia 里) ----------

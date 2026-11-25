@@ -79,14 +79,18 @@ function collect(req, res, start, want, deadline) {
       resolve({
         buf: Buffer.concat(chunks, Math.min(got, want)),   // 整发时一个 chunk 可能超出请求长度,截到 want
         complete: got >= want,
+        status,
         size: status === 206 ? totalFromRange(res.headers['content-range']) : (parseInt(res.headers['content-length'] || '0', 10) || 0),
       })
     }
     res.on('data', c => {
       chunks.push(c)
       got += c.length
-      if (got >= want) {       // 拿够就走(服务器不理 Range、从头整发时用)
-        req.destroy()
+      if (got >= want) {
+        // 服务器不理 Range 从头整发:拿够就掐;断点响应则让它自然结束 ——
+        // 连接会还给连接池,下一次读不用重新握手(实测每个请求都重连的话慢好几倍)
+        if (status !== 206) req.destroy()
+        else res.resume()
         finish()
       }
     })
@@ -102,16 +106,21 @@ function collect(req, res, start, want, deadline) {
 
 /**
  * 精确读 [start, end)。返回 {buf, complete, size};complete=false 表示预算内没读全(buf 是前缀或空)。
- * 3xx 跟随最多两次;其余非 2xx 抛 HttpError(code 形如 'status403')。
+ * 3xx 跟随最多两次(每个跳转目标先交给 allow(url) 校验);其余非 2xx 抛 HttpError(code 形如 'status403')。
  */
-async function readRange(url, headers, start, end, deadline) {
+async function readRange(url, headers, start, end, deadline, allow) {
+  if (deadline > 0 && Date.now() >= deadline) throw new HttpError('deadline', 'deadline')   // 没预算就不发请求
   let target = url
   for (let redirects = 0; ; redirects++) {
     let opened
     try {
       opened = await open(target, headers, start, end, deadline)
     } catch (e) {
-      if (e.code === 'redirect' && e.location && redirects < 2) { target = e.location; continue }
+      if (e.code === 'redirect' && e.location && redirects < 2) {
+        if (allow) await allow(e.location)   // 跳转目标同样要过调用方的白名单/私网检查
+        target = e.location
+        continue
+      }
       throw e
     }
     return collect(opened.req, opened.res, start, end - start, deadline)
@@ -122,14 +131,14 @@ async function readRange(url, headers, start, end, deadline) {
  * 并行分段读一大段 [start, end),返回 {buf, complete, size}。
  * 预算用完/某一路失败时返回「已经读全的最长连续前缀」,complete=false。
  */
-async function readSpan(url, headers, start, end, deadline) {
+async function readSpan(url, headers, start, end, deadline, allow) {
   const total = end - start
   const parts = Math.max(1, Math.min(SPAN_PARTS, Math.floor(total / MIN_PART_BYTES)))
   const each = Math.ceil(total / parts)
   const results = await Promise.all(Array.from({ length: parts }, (_, i) => {
     const a = start + i * each
     const b = Math.min(end, a + each)
-    return readRange(url, headers, a, b, deadline).catch(() => null)
+    return readRange(url, headers, a, b, deadline, allow).catch(() => null)
   }))
   const ok = []
   for (const r of results) {
