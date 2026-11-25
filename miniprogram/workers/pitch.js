@@ -18,6 +18,8 @@
  *   → {type:'store_has', token}                      ← {type:'store_has_result', value}
  *   → {type:'preview', token, semitones, startSec, maxSec}
  *                                                    ← {type:'done', result, ext:'pcm', outLength, sampleRate, channels:2}
+ *   → {type:'probe', token}                         解码自检：实解开头和结尾
+ *      ← {type:'probe_result', token, ok, message, durationSec, sampleRate, channels, peak}
  *   → {type:'process', token, semitones, kbps}
  *      ← meta / progress / chunk{data,bytes} / done / error
  *      → {type:'ack', bytes}                         （主线程落盘后回执，背压）
@@ -398,6 +400,99 @@ function doPreview(msg) {
   }, [resultBuffer])
 }
 
+// ============ 解码自检：确认这首歌真的能解出声音 ============
+// analyze 只探测文件头 —— 解不出声音要到试听/处理时才暴露。进选调页之前先在这里实解一遍：
+//   开头要解得出、要有声音；结尾要真的解得出来（文件被截断、容器时长标错都在这里暴露）
+// 通过后主线程才放出「下一步」，坏文件在付费之前就被挡住。
+
+const PROBE_HEAD_SEC = 2          // 开头解 2 秒
+const PROBE_TAIL_SEC = 1          // 结尾解 1 秒
+const PROBE_SILENCE = 1 / 32768   // 16 位量化下的最小非零值：比它还小就是纯数字静音
+
+/** 从 sec 起解最多 maxSec 秒，返回 {frames, peak}；解码出错时 frames=0 并带 error */
+function probeDecode(chunkPtr, sec, maxSec) {
+  let win
+  try {
+    win = decodeWindow(chunkPtr, sec, maxSec)
+  } catch (err) {
+    return { frames: 0, peak: 0, error: String((err && err.message) || err) }
+  }
+  let peak = 0
+  for (let i = 0; i < win.frames; i++) {
+    const a = Math.abs(win.L[i])
+    if (a > peak) peak = a
+  }
+  return { frames: win.frames, peak }
+}
+
+/** sec 处是不是真的有声音：解 0.6 秒，至少要解出 0.3 秒 */
+function hasAudioAt(chunkPtr, sec) {
+  return probeDecode(chunkPtr, sec, 0.6).frames >= 0.3 * SESSION.rate
+}
+
+/** 声明的结尾解不出东西：二分往前找真正能解到的最后位置（精度 0.5 秒） */
+function findRealEnd(chunkPtr, declaredSec) {
+  let good = 0
+  let bad = declaredSec
+  while (bad - good > 0.5) {
+    const mid = (good + bad) / 2
+    if (hasAudioAt(chunkPtr, mid)) good = mid
+    else bad = mid
+  }
+  return bad   // 第一个「没有声音」的位置 ≈ 真实结尾
+}
+
+function doProbe(msg) {
+  if (!SESSION.token || msg.token !== SESSION.token || !SESSION.opened) {
+    return postOut({ type: 'probe_result', token: msg.token, ok: false, message: '这首歌的数据丢了，回到首页重新选一次' })
+  }
+  const chunkPtr = F('malloc')(PULL_FRAMES * 2 * 4)
+  if (!chunkPtr) return postOut({ type: 'probe_result', token: msg.token, ok: false, message: FF_ERR_MSG[1] })
+  try {
+    // 1) 开头：要解得出、要有声音
+    sessionOpen()
+    const head = probeDecode(chunkPtr, 0, PROBE_HEAD_SEC)
+    if (head.frames <= 0) {
+      return postOut({
+        type: 'probe_result', token: msg.token, ok: false,
+        message: head.error || '这个文件解不出声音，可能已经损坏',
+      })
+    }
+    let peak = head.peak
+    // 开头正好是数字静音（前奏留白）且歌够长：去中间再听一次
+    if (peak <= PROBE_SILENCE && SESSION.durationSec > PROBE_HEAD_SEC * 4) {
+      peak = Math.max(peak, probeDecode(chunkPtr, SESSION.durationSec / 2, PROBE_HEAD_SEC).peak)
+    }
+    if (peak <= PROBE_SILENCE) {
+      return postOut({ type: 'probe_result', token: msg.token, ok: false, message: '这个文件里没有解出声音' })
+    }
+
+    // 2) 结尾：声明的时长处要真的有数据。没有就往前找真实结尾，时长以实测为准
+    let durationSec = SESSION.durationSec
+    let ok = true
+    if (durationSec > PROBE_HEAD_SEC + PROBE_TAIL_SEC + 1) {
+      const tail = probeDecode(chunkPtr, durationSec - PROBE_TAIL_SEC, PROBE_TAIL_SEC)
+      if (tail.frames < PROBE_TAIL_SEC * SESSION.rate * 0.5) {
+        durationSec = findRealEnd(chunkPtr, durationSec)
+        ok = durationSec > PROBE_HEAD_SEC
+      }
+    }
+    postOut({
+      type: 'probe_result',
+      token: msg.token,
+      ok,
+      message: ok ? '' : '这个文件不完整，只有开头一点声音，重新来一次试试',
+      durationSec,
+      sampleRate: SESSION.rate,
+      channels: SESSION.channels,
+      peak,
+    })
+  } finally {
+    try { F('free')(chunkPtr) } catch (e) { /* */ }
+    sessionOpen()   // 回到开头，不影响后面的试听/处理
+  }
+}
+
 // ============ 全曲流式处理 ============
 
 const ACK_WINDOW_BYTES = 4 * 1024 * 1024
@@ -592,6 +687,15 @@ worker.onMessage(function (msg) {
       doPreview(msg)
     } catch (err) {
       postOut({ type: 'error', message: String((err && err.message) || err) })
+    }
+    return
+  }
+
+  if (msg.type === 'probe') {
+    try {
+      doProbe(msg)
+    } catch (err) {
+      postOut({ type: 'probe_result', token: msg.token, ok: false, message: String((err && err.message) || err) })
     }
     return
   }
