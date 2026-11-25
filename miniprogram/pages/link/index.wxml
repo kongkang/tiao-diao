@@ -36,8 +36,24 @@
           <view class="badge">自动提取成音频</view>
         </view>
       </view>
+
+      <!-- 视频太长:选从第几分钟开始,只取一段 -->
+      <view class="slice-box" wx:if="{{slice}}">
+        <view class="slice-tip">
+          这个视频有 {{parsed.durationText}}，太长了。\n手机一次只能调 {{slice.maxMin}} 分钟，选一段：
+        </view>
+        <view class="slice-row">
+          <button class="slice-btn" bindtap="onSliceDown" disabled="{{importing || slice.startMin <= 0}}">－</button>
+          <view class="slice-main">
+            <view class="slice-num">从第 {{slice.fromMin}} 分钟开始</view>
+            <view class="text-sub text-small">取 {{slice.takenText}}</view>
+          </view>
+          <button class="slice-btn" bindtap="onSliceUp" disabled="{{importing || slice.startMin >= slice.maxStartMin}}">＋</button>
+        </view>
+      </view>
+
       <button class="btn-primary" disabled="{{importing}}" bindtap="onImport">
-        {{importing ? '正在提取…' : '提取音频，去试听'}}
+        {{importing ? '正在提取…' : (slice ? '提取这一段，去试听' : '提取音频，去试听')}}
       </button>
       <view class="text-sub text-small" style="margin-top:16rpx;text-align:center;">
         视频链接也一样，只取里面的声音

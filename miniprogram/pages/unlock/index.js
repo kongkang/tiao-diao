@@ -3,6 +3,7 @@ const config = require('../../config.js')
 const session = require('../../services/session.js')
 const billing = require('../../services/billing.js')
 const ad = require('../../services/ad.js')
+const audioSvc = require('../../services/audio.js')
 const { fmtDurationChinese, fmtPitchLabel } = require('../../utils/format.js')
 
 const LABELS = { free: '限时免费', balance: '额度下载', monthly: '包月下载' }
@@ -42,6 +43,20 @@ page({
       rechargeMinutes: p60.minutes,
       monthlyPriceText: String(pMonth.price / 100),
     })
+
+    // 双保险：选调页确认过才放行到这里。再核一遍 —— 不带着解不出的歌去付费
+    try {
+      await audioSvc.verifySong(song)
+    } catch (e) {
+      wx.showModal({
+        title: '这首歌打不开',
+        content: (e && e.message) || '换一首试试',
+        showCancel: false,
+        confirmText: '知道了',
+        success: () => wx.navigateBack({ fail: () => wx.reLaunch({ url: '/pages/index/index' }) }),
+      })
+      return
+    }
 
     await this.refreshEnt()
   },
@@ -89,6 +104,8 @@ page({
   async onConfirm() {
     const selected = this.data.selected
     const bill = this.data.billing
+    // 解析确认没过(或确认中被连点):不往下走
+    if (!(session.getSong() && session.getSong().verified)) return
 
     if (selected === 'free') {
       // 注意：这里不能套 wx.showLoading —— 演示/真实广告都会整屏接管制，

@@ -40,4 +40,20 @@ function call(name, data) {
   )
 }
 
-module.exports = { call, available }
+/**
+ * 原样返回云函数结果（ok:false 不抛错）。给需要区分「最终失败」和「可以重试」的调用方用：
+ * 提取音视频时云端说「这个视频没有声音」是重试也没用的,要直接告诉用户;网络抖动才该重试。
+ */
+function rawCall(name, data) {
+  init()
+  if (!wx.cloud) return Promise.reject(new Error('云服务不可用，请更新微信后重试'))
+  return wx.cloud.callFunction({ name, data }).then(
+    res => res && res.result,
+    err => {
+      console.warn('[cloud] 调用失败', name, (err && err.errMsg) || err)
+      throw new Error('网络或云服务不可用，请稍后重试')
+    }
+  )
+}
+
+module.exports = { call, rawCall, available }

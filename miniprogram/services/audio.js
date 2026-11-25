@@ -88,8 +88,52 @@ function unsupportedError(format) {
   return new Error(tips[format] || '这个格式打不开，换 mp3 文件试试')
 }
 
-/** 从本地路径建 song(选文件/链接导入共用):嗅探 + 解码会话 + 元数据 */
-async function buildSongFromPath(path, name, size) {
+// MP3 编码支持的采样率。与 workers/libs/pitch-dsp.js 的 MP3_RATES 保持一致 ——
+// 主线程不能 require Worker 目录里的文件,只能各写一份(改一处记得改另一处)
+const MP3_RATES = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000]
+
+/**
+ * 解码自检 —— 「解析成功才允许下一步」的统一入口。
+ * analyze 只探测文件头,文件头能打开不代表能解出声音;这里让 Worker 实解开头和结尾。
+ *   通过:song.verified = true(各页面只认这个标记),时长以实测为准
+ *   不通过:抛出给人看的中文短句,song.verified = false
+ * @param {object} opts { expectedSec } 已知时长(云端解析给的):差太多说明文件不完整
+ */
+async function verifySong(song, opts) {
+  if (!song) throw new Error('还没有选择音乐')
+  if (song.verified) return song
+  try {
+    await ensureSong(song)
+    // 采样率太高(高清无损常见)MP3 编不了:提前说,别等付了费才在处理时失败
+    if (MP3_RATES.indexOf(song.sampleRate) < 0) {
+      throw new Error('这段音频的音质规格太高(' + song.sampleRate + 'Hz),手机上暂时处理不了,换一个试试')
+    }
+    const r = await engine.verify(song.token)
+    if (!r || !r.ok) throw new Error((r && r.message) || '这段音频解不出声音,换一个试试')
+    // 时长以实解为准(文件被截断、容器标的时长不准,都在这里修正)
+    if (r.durationSec > 0 && Math.abs(r.durationSec - song.durationSec) > 0.25) {
+      song.durationSec = r.durationSec
+      song.frames = Math.round(r.durationSec * song.sampleRate)
+    }
+    const expected = opts && opts.expectedSec
+    if (expected > 0 && Math.abs(song.durationSec - expected) > Math.max(3, expected * 0.03)) {
+      throw new Error('提取到的文件不完整(应有 ' + fmtMinutes(expected) + ',实际只有 ' + fmtMinutes(song.durationSec) + '),再提取一次试试')
+    }
+    song.verified = true
+    return song
+  } catch (e) {
+    song.verified = false
+    throw e
+  }
+}
+
+function fmtMinutes(sec) {
+  const s = Math.max(0, Math.round(sec))
+  return Math.floor(s / 60) + ' 分 ' + (s % 60) + ' 秒'
+}
+
+/** 从本地路径建 song(选文件/链接导入共用):嗅探 + 解码会话 + 元数据 + 解码自检 */
+async function buildSongFromPath(path, name, size, verifyOpts) {
   const head = await readHeader(path)
   const format = sniffFormat(head)
   if (format === 'ogg' || format === 'amr' || format === 'ape') {
@@ -99,13 +143,12 @@ async function buildSongFromPath(path, name, size) {
   wx.showLoading({ title: '正在读取', mask: true })
   try {
     const meta = await engine.analyzeFile(path, size)
-    wx.hideLoading()
     const durationSec = meta.durationSec || (meta.frames / meta.sampleRate) || 0
     if (durationSec < 2) {
       engine.abort()
       throw new Error(durationSec > 0 ? '这段音乐太短了' : '读不出这首歌的时长，换一首试试')
     }
-    return {
+    const song = {
       path,
       name: name || '音乐',
       size,
@@ -116,6 +159,11 @@ async function buildSongFromPath(path, name, size) {
       channels: meta.channels,
       durationSec,
     }
+    // 文件头能打开不算数,实解出声音才放行
+    wx.showLoading({ title: '正在确认音频', mask: true })
+    await verifySong(song, verifyOpts)
+    wx.hideLoading()
+    return song
   } catch (e) {
     wx.hideLoading()
     throw e
@@ -133,13 +181,16 @@ async function loadSong() {
   return buildSongFromPath(file.path, file.name, file.size)
 }
 
-/** 链接导入：云端提取好的本地临时文件 → song（时长以实际解码为准，计费口径不变） */
-async function importSongFromPath(path, name, sizeHint) {
+/**
+ * 链接导入：云端提取好的本地临时文件 → song（时长以实际解码为准，计费口径不变）
+ * @param {object} opts { expectedSec } 云端给的时长,用来确认提取出来的文件是完整的
+ */
+async function importSongFromPath(path, name, sizeHint, opts) {
   const size = sizeHint || await getFileSize(path)
   if (size > config.MAX_FILE_MB * 1024 * 1024) {
     throw new Error('这个音频超过 ' + config.MAX_FILE_MB + 'MB，换个短一点的')
   }
-  const song = await buildSongFromPath(path, name, size)
+  const song = await buildSongFromPath(path, name, size, opts)
   song.imported = true   // 结果页据此显示「发原曲」（已随本次下载付费，不再扣）
   return song
 }
@@ -481,7 +532,7 @@ function stopPreview() {
 }
 
 module.exports = {
-  loadSong, ensureSong, importSongFromPath,
+  loadSong, ensureSong, importSongFromPath, verifySong,
   playPreviewChunked, playInterleavedF32,
   stopPreview, pausePreview, resumePreview, getPreviewState,
   setPreviewMuted, sniffFormat,

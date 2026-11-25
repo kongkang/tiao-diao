@@ -27,6 +27,15 @@ const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleW
 // 抖音 App 客户端 UA:aweme/v1/feed 接口只认这个形态,浏览器 UA 只回几十字节空壳
 const DOUYIN_CLIENT_UA = 'com.ss.android.ugc.aweme/290101 (Linux; U; Android 12; zh_CN; SM-G988N; Build/SP1A.210812.016; Cronet/TTNetVersion:d1da0ea9 2023-01-13 QuicVersion:51879282 2022-12-07)'
 const REQ_TIMEOUT_MS = 12000
+// B站接口的风控:对数据中心 IP(云函数)只带 UA 的请求直接回 412 拦截页;
+// 带上浏览器式的 Cookie(buvid3)+ Referer + Accept 才放行(2026-11-25 云上实测)
+const BILI_HEADERS = {
+  'User-Agent': UA,
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'zh-CN,zh;q=0.9',
+  Referer: 'https://www.bilibili.com/',
+  Cookie: 'buvid3=' + Date.now().toString(16) + Math.random().toString(16).slice(2) + 'infoc',
+}
 
 // ---------- 简易限频(单实例内存级,防一个号疯狂刷解析;多实例时会放大,可接受) ----------
 const RATE = { windowMs: 5 * 60 * 1000, max: 30 }
@@ -174,7 +183,15 @@ async function resolveBilibili(rawUrl) {
   }
 
   const idq = bvid ? 'bvid=' + bvid : 'aid=' + aid
-  const v = JSON.parse((await request('https://api.bilibili.com/x/web-interface/view?' + idq)).body.toString('utf8'))
+  const vr = await request('https://api.bilibili.com/x/web-interface/view?' + idq, { headers: BILI_HEADERS })
+  let v
+  try {
+    v = JSON.parse(vr.body.toString('utf8'))
+  } catch (e) {
+    // 回的不是 JSON:多半又是风控拦截页(412)。说人话,别把解析错误甩给用户
+    console.warn('[parseMedia] B站接口返回非 JSON', vr.status)
+    throw new Error('B站那边暂时不让访问(' + vr.status + '),过几分钟再试')
+  }
   if (v.code !== 0) {
     if (v.code === -404 || v.code === 62002) throw new Error('B站上找不到这个视频了(可能已删除或转成私密)')
     if (v.code === -400 || v.code === 62012) throw new Error('链接没认出来。在B站App里点「分享 → 复制链接」,把整段文字粘进来')
@@ -340,6 +357,7 @@ exports.main = async (event) => {
       return { ok: false, message: msg }
     }
     console.warn('[parseMedia] 未归类错误', (e && e.stack) || e)
-    return { ok: false, message: '网络开小差了,再试一次' }
+    // detail 只给排查用(客户端不展示):线上遇到没归类的错,能直接看到原因
+    return { ok: false, message: '网络开小差了,再试一次', detail: String(msg).slice(0, 200) }
   }
 }

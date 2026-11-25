@@ -6,18 +6,19 @@
     <view class="file-info">
       <view class="file-name">{{song.name}}</view>
       <view class="text-sub text-small">时长 {{durationText}} ｜ {{song.channels > 1 ? '立体声' : '单声道'}}</view>
+      <view class="text-sub text-small" wx:if="{{sliceText}}">{{sliceText}}</view>
     </view>
   </view>
 
   <!-- 调节器 -->
   <view class="card pitch-box">
     <view class="pitch-row">
-      <button class="circle-btn" bindtap="onDown">－</button>
+      <button class="circle-btn" bindtap="onDown" disabled="{{verifyState !== 'ok'}}">－</button>
       <view class="pitch-stat">
         <view class="pitch-num {{semitones < 0 ? 'down' : ''}}">{{semitonesDisplay}}</view>
         <view class="pitch-label">{{pitchLabel}}</view>
       </view>
-      <button class="circle-btn" bindtap="onUp">＋</button>
+      <button class="circle-btn" bindtap="onUp" disabled="{{verifyState !== 'ok'}}">＋</button>
     </view>
     <view class="pitch-hint">
       觉得伴奏<text class="bold">太低</text>、唱不上去 → 点 ＋ 升高\n
@@ -30,13 +31,13 @@
     <view class="player-status">{{statusText}}</view>
     <view class="player-row">
       <button class="play-btn {{playState}}" bindtap="onPlayToggle"
-        disabled="{{playState === 'processing'}}" aria-label="播放或暂停">
+        disabled="{{playState === 'processing' || verifyState !== 'ok'}}" aria-label="播放或暂停">
         {{playState === 'playing' ? '⏸' : '▶'}}
       </button>
       <view class="player-body">
         <slider class="player-slider" min="0" max="{{durationFloor}}" step="1" value="{{previewStart}}"
           activeColor="#07c160" backgroundColor="#eef0f3" block-size="16" block-color="#07c160"
-          bindchange="onSeek" bindchanging="onSeeking" />
+          disabled="{{verifyState !== 'ok'}}" bindchange="onSeek" bindchanging="onSeeking" />
         <view class="player-time">
           <text>{{playTimeText}}</text>
           <text>{{playTotalText}}</text>
@@ -45,9 +46,24 @@
     </view>
   </view>
 
-  <button class="btn-primary" bindtap="onNext">下一步</button>
-  <view class="text-sub text-small" style="text-align:center;margin-top:20rpx;">
-    拖到哪儿就从哪儿听，每次播 3 分钟；改调也会自动重唱
+  <!-- 「下一步」只在确认这首歌能正常播放之后才出现。
+       确认不通过就不给下一步:带着解不出的歌去付费、去处理,只会白等一场 -->
+  <view class="card verify-card" wx:if="{{verifyState === 'checking'}}">
+    <view class="verify-line">正在确认这首歌能不能正常播放…</view>
   </view>
+
+  <view class="card verify-card" wx:elif="{{verifyState === 'failed'}}">
+    <view class="verify-title">这首歌打不开</view>
+    <view class="verify-text">{{verifyText}}</view>
+    <button class="btn-plain" bindtap="onReverify">重新检查</button>
+    <button class="btn-gray" bindtap="onNewSong" style="margin-top:16rpx;">换一首</button>
+  </view>
+
+  <block wx:else>
+    <button class="btn-primary" bindtap="onNext">下一步</button>
+    <view class="text-sub text-small" style="text-align:center;margin-top:20rpx;">
+      拖到哪儿就从哪儿听，每次播 3 分钟；改调也会自动重唱
+    </view>
+  </block>
 
 </view>

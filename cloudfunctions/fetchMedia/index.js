@@ -34,7 +34,11 @@ const { PlanError } = require('./mp4box.js')
 // 单次调用总墙钟预算:默认 2600ms(适配函数超时 3s)。控制台把超时调大后,
 // 可设环境变量 FETCH_WALL_MS(如 9000)放大预算:单次读得更多,调用次数更少
 const CALL_WALL_MS = Math.min(15000, Math.max(2000, parseInt(process.env.FETCH_WALL_MS || '2600', 10) || 2600))
-const MAX_CHUNK_BYTES = 1536 * 1024
+// ⚠️ 微信云函数单次返回不能超过 1MB(-501000 response size exceeded 1048576 bytes,2026-11-25 云上实测)。
+// 二进制走 base64 会膨胀 4/3,所以单块上限 720KB → base64 约 0.94MB,留出 JSON 外层的余量。
+// (之前按 1.5MB 一块设计,本地直调函数入口测不出来 —— 没有这道网关限制;一到真机,
+//   视频一大、某一块拿满就必然失败。)
+const MAX_CHUNK_BYTES = 720 * 1024
 const CACHE_TTL_MS = 10 * 60 * 1000
 const DEFAULT_MAX_SEC = 600      // 一段最多 10 分钟:真机变调约 0.1 倍实时,再长手机吃不消
 const HARD_MAX_SEC = 900
@@ -270,7 +274,7 @@ exports.main = async (event) => {
     // 各平台解析抛的错都是给用户看的中文短句,原样透出;其余按未归类处理
     if (/[\u4e00-\u9fa5]/.test(msg)) return { ok: false, message: msg }
     console.warn('[fetchMedia] 未归类错误', (e && e.stack) || e)
-    return { ok: false, message: '提取没成功,再试一次' }
+    return { ok: false, message: '提取没成功,再试一次', detail: String(msg).slice(0, 200) + ' ' + String(e && e.code || '') }
   }
 }
 

@@ -31,9 +31,13 @@ module.exports = {
   MP3_KBPS: 160,              // MP3 默认码率；超长时由 services/quality.js 自动降档
   WMA_DECODE_ENABLED: true,   // wma 由自带 FFmpeg WASM 解码（Worker 内 WXWebAssembly）
 
-  // ============ 链接导入（B站 / 唱吧 / 全民K歌） ============
-  // 云函数 parseMedia + fetchMedia；云端单文件上限 80MB（cloudfunctions/fetchMedia 里同步改）
+  // ============ 链接导入（B站 / 抖音 / 视频号 / 唱吧 / 全民K歌） ============
+  // 云函数 parseMedia + fetchMedia。云端只取音轨：手机收到的是音频，不是整个视频
   LINK_IMPORT_ENABLED: true,  // 总开关：审核期可临时关闭（入口与页面一并隐藏）
+  // 视频太长时一次只取一段（秒）。真机变调约 0.1 倍实时：10 分钟的歌要处理 1 分多钟，
+  // 再长手机吃不消。超过这个长度的视频让用户选「从第几分钟开始」。
+  // 云端硬上限 900 秒（cloudfunctions/fetchMedia/index.js 的 HARD_MAX_SEC），这里不能超过它
+  IMPORT_MAX_SEC: 600,
 
   // ============ 计费规则（已定稿，勿随意改） ============
   // 计费分钟 = max(1, round(秒/60))      四舍五入，最少 1 分钟

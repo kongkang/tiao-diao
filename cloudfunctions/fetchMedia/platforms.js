@@ -116,8 +116,11 @@ function wbiSign(params, imgKey, subKey) {
   return { query, w_rid: md5(query + mixinKey) }
 }
 
+// B站接口的风控:对数据中心 IP 只带 UA 的请求直接回 412;带上浏览器式 Cookie + Referer + Accept 才放行
 const biliApiHeaders = () => ({
   'User-Agent': UA,
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'zh-CN,zh;q=0.9',
   Referer: 'https://www.bilibili.com/',
   Cookie: 'buvid3=' + crypto.randomUUID() + 'infoc',
 })
