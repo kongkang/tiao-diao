@@ -28,23 +28,15 @@ async function main() {
       console.log(`    at ${f.functionName || '(anon)'} ${f.url.split('/').pop()}:${f.lineNumber + 1}`))
   })
 
-  // 注入歌 → pitch
-  await mp.evaluate(() => {
-    const session = require('services/session.js')
-    const sr = 44100, n = sr * 180
-    const pcmL = new Float32Array(n)
-    for (let i = 0; i < n; i++) pcmL[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
-    session.setSong({
-      path: '/tmp/fake.wav', name: '测试歌（3分钟）.wav',
-      durationSec: 180, sampleRate: sr, channels: 2, length: n,
-      pcmL, pcmR: new Float32Array(pcmL),
-    })
-    session.setSemitones(2)
-  })
+  // 注入歌 → pitch（真实的 WAV → Worker 解码会话;选调页要先确认解得出声音才放出「下一步」）
+  const injectSong = require('./inject-song.js')
+  const waitVerified = require('./lib/wait-verified.js')
+  await injectSong(mp, 180)
   await mp.reLaunch('/pages/pitch/index')
   await sleep(1800)
   let page = await mp.currentPage()
   console.log('\npitch 页:', page.path)
+  await waitVerified(page)   // 解码确认通过后才有「下一步」
 
   // 点下一步 → 应到 unlock
   const btn = await page.$('.btn-primary')

@@ -1,4 +1,4 @@
-// 带歌全流程验证：注入 3 分钟虚拟歌曲 → 变调页渲染 → 下一步 → 解锁页渲染
+// 带歌全流程验证：注入 3 分钟测试歌 → 变调页渲染 → 解码确认 → 下一步 → 解锁页渲染
 // 复现真机场景（setData 大数组白屏的回归测试）
 // 前提: cli auto 已启动且模拟器在运行
 
@@ -18,29 +18,12 @@ async function main() {
     if (m.type === 'error') { try { errors.push(JSON.stringify(m).slice(0, 400)) } catch (e) { errors.push(String(m)) } }
   })
 
-  // 1) 注入 3 分钟虚拟歌曲（PCM 大小与真实歌曲相当：44100*180 ≈ 794 万个采样点/声道）
-  const inject = await mp.evaluate(() => {
-    try {
-      const session = require('services/session.js')
-      const sr = 44100, n = sr * 180 // 3 分钟
-      // 快速铺砖法：440Hz × 1s = 整 440 周期，1 秒块首尾相位连续，拼 180 次即完美正弦
-      // （逐点 Math.sin 794 万次在模拟器里要 26s+，会撞 IDE 自动化服务器 10s 消息超时）
-      const sec = new Float32Array(sr)
-      for (let i = 0; i < sr; i++) sec[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
-      const pcmL = new Float32Array(n)
-      for (let k = 0; k < 180; k++) pcmL.set(sec, k * sr)
-      const pcmR = new Float32Array(pcmL)
-      session.setSong({
-        path: '/tmp/fake.wav', name: '测试歌（3分钟）.wav',
-        durationSec: 180, sampleRate: sr, channels: 2, length: n,
-        pcmL, pcmR,
-      })
-      session.setSemitones(2)
-      return { ok: true }
-    } catch (e) { return { ok: false, msg: String(e.message || e) } }
-  })
-  console.log('注入虚拟歌曲:', JSON.stringify(inject))
-  if (!inject.ok) { await mp.disconnect(); return }
+  // 1) 注入 3 分钟测试歌（真实的 WAV → Worker 解码会话）
+  //    选调页现在要先确认这首歌解得出声音才放出「下一步」，
+  //    早期那套「PCM 数组直塞 session、路径不存在」的假歌过不了这一关
+  const injectSong = require('./inject-song.js')
+  const waitVerified = require('./lib/wait-verified.js')
+  await injectSong(mp, 180, '测试歌（3分钟）.wav')
 
   // 2) 进变调页，验证渲染（关键回归点：页面必须真的停留在 pitch 且 WXML 有内容）
   await mp.reLaunch('/pages/pitch/index')
@@ -53,6 +36,7 @@ async function main() {
     const nameText = name ? await name.text() : '<没找到 .file-name>'
     const stat = await page.$('.pitch-num')
     const statText = stat ? await stat.text() : '<没找到 .pitch-num>'
+    await waitVerified(page)   // 解码确认通过后才有「下一步」
     console.log('文件名渲染:', nameText)
     console.log('调级显示:', statText)
     await mp.screenshot({ path: __dirname + '/shots/pitch-with-song.png' })

@@ -110,10 +110,12 @@ page({
     const startSec = this.data.slice ? this.data.slice.startMin * 60 : 0
     this.setData({ importing: true })
     this.showProgress({ bytes: 0, totalBytes: 0 })
+    let stage = 'fetch'
     try {
       const r = await linkimport.fetchAudioToFile(p.ref, { startSec, maxSec: config.IMPORT_MAX_SEC }, pr => this.showProgress(pr))
 
       // 提取完还不算数:确认手机真的能把它解出声音。解不出就在这里拦下,不带坏文件进下一步
+      stage = 'verify'
       wx.showLoading({ title: '正在确认音频', mask: true })
       const meta = r.meta || {}
       const song = await audioSvc.importSongFromPath(r.path, p.title, r.sizeBytes, { expectedSec: meta.durationSec })
@@ -128,16 +130,22 @@ page({
     } catch (e) {
       wx.hideLoading()
       this.setData({ importing: false })
-      this.showError(e)
+      this.showError(e, stage)
     }
   },
 
-  /** 取不了(云端拒绝/解不出声音)就只给「知道了」;中断了才给「再试一次」(会从断点接着提) */
-  showError(e) {
-    const final = !!(e && e.final)
+  /**
+   * 取不了(云端拒绝 / 手机上解不出)就只给「知道了」;中断了才给「再试一次」(会从断点接着提)
+   * stage = 'verify' 表示音频已经提取到了,是手机这边解不了 —— 再提一次也没用,
+   * 除非是文件不完整或内存不足这种重试一次可能就好的
+   */
+  showError(e, stage) {
+    const msg = (e && e.message) || '再试一次看看'
+    const mayHelp = /不完整|内存不足|处理被中断/.test(msg)
+    const final = stage === 'verify' ? !mayHelp : !!(e && e.final)
     wx.showModal({
-      title: final ? '这个链接取不了' : '提取没成功',
-      content: (e && e.message) || '再试一次看看',
+      title: final ? (stage === 'verify' ? '提取到了，但手机上放不了' : '这个链接取不了') : '提取没成功',
+      content: msg,
       showCancel: !final,
       confirmText: final ? '知道了' : '再试一次',
       cancelText: '返回',
