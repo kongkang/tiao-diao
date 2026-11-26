@@ -101,6 +101,13 @@ function discardResult(state) {
   return state && state.w ? state.w.discard() : Promise.resolve()
 }
 
+/** 小文件一次性写入（兼容旧调用/测试） */
+async function writeResult(origName, semitones, data, ext) {
+  const state = await beginResult(origName, semitones, ext)
+  await writeChunk(state, data)
+  return finishResult(state)
+}
+
 /** 发回微信聊天（用户点按钮触发） */
 function shareResult(path, fileName) {
   return new Promise((resolve, reject) => {
