@@ -16,6 +16,7 @@ const origCmp = require(cmpPath)
 require.cache[cmpPath].exports = (a, b) => (typeof a !== 'string' ? 0 : origCmp(a, b))
 
 const automator = require('miniprogram-automator')
+const waitVerified = require('./lib/wait-verified.js')
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const FILE = '/tmp/td-worker-test/long.mp3'
@@ -82,6 +83,7 @@ async function main() {
   await sleep(1500)
   let page = await mp.currentPage()
   if (page.path !== 'pages/pitch/index') throw new Error('没到变调页: ' + page.path)
+  await waitVerified(page)   // 解码确认通过后才响应播放 / 下一步
   await page.setData({ previewStart: 480 })
   await page.callMethod('onPlayToggle')
 

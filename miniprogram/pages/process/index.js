@@ -54,6 +54,8 @@ page({
 
     try {
       const s = await audioSvc.ensureSong(song)
+      // 解析确认:Worker 被系统杀过会话重建后,重新确认这首歌还解得出声音(已确认过且会话没丢则秒过)
+      await audioSvc.verifySong(s)
       const q = quality.pickKbps(s.durationSec, 2, s.sampleRate)
       if (q.impossible) {
         throw new Error('这首歌转成 mp3 会超过微信单文件 100MB 上限，暂时无法生成')

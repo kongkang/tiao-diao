@@ -112,3 +112,24 @@
   font-size: 0.85em;
   color: #999;
 }
+
+/* 解析确认 */
+.verify-card {
+  text-align: center;
+}
+
+.verify-line {
+  padding: 12rpx 0;
+  color: #8a8f98;
+}
+
+.verify-title {
+  font-weight: 600;
+  margin-bottom: 12rpx;
+}
+
+.verify-text {
+  color: #8a8f98;
+  line-height: 1.5;
+  margin-bottom: 24rpx;
+}

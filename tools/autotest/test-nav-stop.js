@@ -7,6 +7,7 @@ require.cache[cmpPath].exports = (a, b) => (typeof a !== 'string' ? 0 : origCmp(
 
 const automator = require('miniprogram-automator')
 const injectSong = require('./inject-song.js')
+const waitVerified = require('./lib/wait-verified.js')
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 async function waitState(page, want, timeoutMs) {
@@ -33,6 +34,7 @@ async function main() {
   await sleep(2000)
   let page = await mp.currentPage()
   if (page.path !== 'pages/pitch/index') { console.log('❌ 没停在 pitch'); await mp.disconnect(); return }
+  await waitVerified(page)   // 解码确认通过后才响应播放 / 下一步
 
   // 场景 1：播起来以后点下一步
   await page.callMethod('onPlayToggle')

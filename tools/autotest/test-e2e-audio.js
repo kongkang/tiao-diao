@@ -17,6 +17,7 @@ require.cache[cmpPath].exports = (a, b) => (typeof a !== 'string' ? 0 : origCmp(
 
 const automator = require('miniprogram-automator')
 const injectSong = require('./inject-song.js')
+const waitVerified = require('./lib/wait-verified.js')
 const { spawn, spawnSync, execSync } = require('child_process')
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
@@ -73,6 +74,7 @@ async function main() {
     await sleep(2000)
     let page = await mp.currentPage()
     if (page.path !== 'pages/pitch/index') { console.log('❌ 没停在 pitch'); return }
+  await waitVerified(page)   // 解码确认通过后才响应播放 / 下一步
 
     // 轮 1：+2 级（注入默认），期望 493.9Hz
     let rec = await recordAndCheck(493.9, '+2 级')

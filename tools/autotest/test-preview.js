@@ -10,6 +10,7 @@ require.cache[cmpPath].exports = (a, b) => (typeof a !== 'string' ? 0 : origCmp(
 
 const automator = require('miniprogram-automator')
 const injectSong = require('./inject-song.js')
+const waitVerified = require('./lib/wait-verified.js')
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 /** 轮询等页面进入目标状态 */
@@ -38,6 +39,7 @@ async function main() {
   await sleep(2000)
   let page = await mp.currentPage()
   if (page.path !== 'pages/pitch/index') { console.log('❌ 没停在 pitch'); await mp.disconnect(); return }
+  await waitVerified(page)   // 解码确认通过后才响应播放 / 下一步
 
   // 1) 合并后的结构：无快捷条，播放器里一条整歌进度条
   const quick = await page.$('.quick-btn')

@@ -5,6 +5,7 @@
 //     → analyze_begin / analyze_chunk(×N) / analyze_end
 //     ← analyzed {token,frames,sampleRate,channels,durationSec}
 //   storeHas(token)           解码会话是否还在（Worker 被杀后自检）
+//   verify(token)             解码自检：Worker 实解开头和结尾，回 probe_result {ok, message, durationSec}
 //   preview({...})            试听：只解码 10 秒窗口，回交错 PCM
 //   process({...})            全曲：流式变调+MP3，分块回传，主线程 appendFile
 //
@@ -183,6 +184,9 @@ function onMessage(msg) {
     resolveWaiter('analyzed', msg)
     return
   }
+  if (msg.type === 'probe_result') {
+    return settle(null, msg)   // ok:false 也是正常返回,由 audio.verifySong 决定怎么跟用户说
+  }
   if (msg.type === 'store_has_result') {
     return settle(null, msg.value)
   }
@@ -225,7 +229,10 @@ function readFileSlice(path, position, length) {
       position,
       length,
       success: res => resolve(res.data),
-      fail: err => reject(new Error('读取文件失败，可能文件已被清理；重新选一次试试（' + (err.errMsg || '') + '）')),
+      fail: err => {
+        console.warn('[engine] readFile 失败', (err && err.errMsg) || err)
+        reject(new Error('这首歌的文件不见了，可能被系统清理了，重新选一次试试'))
+      },
     })
   })
 }
@@ -346,6 +353,18 @@ function preview(opts) {
 }
 
 /**
+ * 解码自检:让 Worker 实解开头和结尾,确认这首歌真的能出声
+ * @returns {Promise<{ok:boolean, message?:string, durationSec?:number, sampleRate?:number, channels?:number}>}
+ */
+function probe(token) {
+  if (current) return Promise.reject(new Error('正在处理中，请稍等'))
+  const req = startRequest('probe', 30000)
+  if (!req) return Promise.reject(new Error('正在处理中，请稍等'))
+  postToWorker(worker, { type: 'probe', token })
+  return req.promise
+}
+
+/**
  * 全曲处理：流式变调 + MP3，分块落盘
  * @param {Object} opts { token, semitones, kbps, onProgress(percent), onChunk(ArrayBuffer), onMeta(meta) }
  * @returns {Promise<{ext,durationSec,outLength,sampleRate,channels,kbps,bytes,elapsedMs}>}
@@ -377,4 +396,4 @@ function abort() {
   if (current) settle(new Error('已取消'))
 }
 
-module.exports = { analyze, analyzeFile, storeHas, preview, process, abort }
+module.exports = { analyze, analyzeFile, storeHas, verify: probe, preview, process, abort }

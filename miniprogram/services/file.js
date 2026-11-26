@@ -1,10 +1,12 @@
 // 结果文件：分块写入用户目录 + 发回微信
 // ⚠️ 小程序不能直接存进手机存储，shareFileMessage 是唯一出口
 // ⚠️ shareFileMessage 必须由用户点击手势触发
-// ⚠️ appendFile 不会自动建文件：首块必须 writeFile 创建，后续才 appendFile
+// 落盘走 filewriter（攒批写）：来一块 append 一块又慢、又会撞上本地存储配额的平方计数，
+// 攒成大批再写。调用方（处理页）只管 beginResult / writeChunk / finishResult，不用关心批。
 
 const config = require('../config.js')
 const { safeBaseName } = require('../utils/format.js')
+const { createWriter } = require('./filewriter.js')
 
 const PREFIX = '【' + config.APP_NAME + '-'
 const MAX_BYTES = (config.MAX_OUTPUT_MB || 95) * 1024 * 1024
@@ -52,71 +54,51 @@ function cleanupOldResults(keepPath) {
 
 /**
  * 开始一次结果写入：算文件名、清旧文件、返回 state。
- * 不创建空文件（appendFile 不能建文件，首块由 writeChunk 用 writeFile 创建）。
- * @returns {Promise<{path,fileName,started,bytes}>}
+ * 数据先攒在内存里，攒满一批才落盘（首块 writeFile 创建，后续 appendFile）。
+ * @returns {Promise<{path,fileName,w}>}  w 是攒批写入器，调用方不用碰
  */
 async function beginResult(origName, semitones, ext) {
   const fileName = buildResultName(origName, semitones, ext)
   const path = wx.env.USER_DATA_PATH + '/' + fileName
   await cleanupOldResults(path)
-  return { path, fileName, started: false, bytes: 0 }
+  return {
+    path,
+    fileName,
+    w: createWriter(fs(), path, {
+      maxBytes: MAX_BYTES,
+      overMessage: '转出来的文件超过微信单文件 100MB 上限，这首歌太长了',
+      diskFailMessage: msg => /1300202|100M|上限|maximum size|storage limit/i.test(msg)
+        ? '手机本地空间不够了（微信给小程序的存储已满），清理一下旧文件再试'
+        : '保存失败：' + msg,
+    }),
+  }
 }
 
-/** 写一块结果（首块 writeFile 创建/截断，后续 appendFile） */
+/** 收一块结果（多数时候只是攒进内存，攒满一批才真正写文件） */
 function writeChunk(state, data) {
-  return new Promise((resolve, reject) => {
-    const len = data ? data.byteLength : 0
-    if (!len) return resolve()
-    if (state.bytes + len > MAX_BYTES) {
-      return reject(new Error('转出来的文件超过微信单文件 100MB 上限，这首歌太长了'))
-    }
-    const fail = err => {
-      const msg = (err && err.errMsg) || ''
-      if (/1300202|100M|上限|maximum size|storage limit/i.test(msg)) {
-        return reject(new Error('微信单个文件最多 100MB（本地空间也可能满了），这首歌太长或旧文件太多'))
-      }
-      reject(new Error('保存失败：' + msg))
-    }
-    if (!state.started) {
-      fs().writeFile({
-        filePath: state.path,
-        data,
-        success: () => { state.started = true; state.bytes += len; resolve() },
-        fail,
-      })
-    } else {
-      fs().appendFile({
-        filePath: state.path,
-        data,
-        success: () => { state.bytes += len; resolve() },
-        fail,
-      })
-    }
-  })
+  return state.w.push(data)
 }
 
-/** 收尾：确认文件存在并返回最终大小 */
-function finishResult(state) {
+/** 收尾：把攒着的全部落盘，确认文件存在并返回最终大小 */
+async function finishResult(state) {
+  await state.w.flush()
+  if (!state.w.onDiskBytes) throw new Error('没有生成任何音频数据')
   return new Promise((resolve, reject) => {
-    if (!state.started) return reject(new Error('没有生成任何音频数据'))
     fs().stat({
       path: state.path,
       success: res => resolve({
         path: state.path,
         fileName: state.fileName,
-        bytes: (res.stats && res.stats.size) || state.bytes,
+        bytes: (res.stats && res.stats.size) || state.w.onDiskBytes,
       }),
       fail: err => reject(new Error('保存失败：' + ((err && err.errMsg) || ''))),
     })
   })
 }
 
-/** 失败/退出：删掉半成品 */
+/** 失败/退出：丢掉没落盘的，删掉半成品 */
 function discardResult(state) {
-  return new Promise(resolve => {
-    if (!state || !state.started || !state.path) return resolve()
-    fs().unlink({ filePath: state.path, complete: () => resolve() })
-  })
+  return state && state.w ? state.w.discard() : Promise.resolve()
 }
 
 /** 小文件一次性写入（兼容旧调用/测试） */
